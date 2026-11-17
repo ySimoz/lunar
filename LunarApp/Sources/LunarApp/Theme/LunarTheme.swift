@@ -176,11 +176,15 @@ public extension View {
 
     @ViewBuilder
     func lunarSuppressTopScrollEdge() -> some View {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             self.scrollEdgeEffectHidden(true, for: .top)
         } else {
             self
         }
+        #else
+        self
+        #endif
     }
 }
 

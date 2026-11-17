@@ -1,0 +1,78 @@
+name: Build and Release Lunar
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Test and Package macOS App
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Run Go core tests
+        working-directory: core
+        run: go test -v ./...
+
+      - name: Run Swift package tests
+        working-directory: LunarApp
+        run: swift test
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            RAW_TAG="${GITHUB_REF_NAME}"
+            VERSION="${RAW_TAG#v}"
+          else
+            VERSION="$(tr -d '[:space:]' < VERSION)"
+          fi
+          echo "app_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "app_build=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and zip release app bundle
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+          APP_BUILD: ${{ steps.version.outputs.app_build }}
+        run: |
+          ./scripts/build_release.sh --zip
+          shasum -a 256 "build/release/Lunar-${APP_VERSION}-macos.zip" > "build/release/Lunar-${APP_VERSION}-macos.zip.sha256"
+          ls -lh build/release
+
+      - name: Upload release build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lunar-${{ steps.version.outputs.app_version }}-macos
+          path: |
+            build/release/Lunar-*.zip
+            build/release/Lunar-*.zip.sha256
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Lunar ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            build/release/Lunar-${{ steps.version.outputs.app_version }}-macos.zip
+            build/release/Lunar-${{ steps.version.outputs.app_version }}-macos.zip.sha256
