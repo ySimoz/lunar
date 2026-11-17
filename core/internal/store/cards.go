@@ -27,7 +27,7 @@ func (s *Store) ListCards(deckID string) ([]domain.Flashcard, error) {
 		query += " WHERE deck_id = ?"
 		args = append(args, deckID)
 	}
-	query += " ORDER BY card_order ASC, created_at ASC, id ASC"
+	query += " ORDER BY card_order ASC, created_at ASC, rowid ASC"
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {

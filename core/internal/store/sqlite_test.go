@@ -667,9 +667,9 @@ func TestTransferCardsWithTargetIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDeck: %v", err)
 	}
-	c1, _ := s.CreateCard(domain.Flashcard{DeckID: deck.ID, Topic: "Limits", Front: "L1", Back: "A1"})
-	c2, _ := s.CreateCard(domain.Flashcard{DeckID: deck.ID, Topic: "Limits", Front: "L2", Back: "A2"})
-	c3, _ := s.CreateCard(domain.Flashcard{DeckID: deck.ID, Topic: "Derivatives", Front: "D1", Back: "B1"})
+	c1, _ := s.CreateCard(domain.Flashcard{DeckID: deck.ID, Topic: "Limits", Order: 0, Front: "L1", Back: "A1"})
+	c2, _ := s.CreateCard(domain.Flashcard{DeckID: deck.ID, Topic: "Limits", Order: 1, Front: "L2", Back: "A2"})
+	c3, _ := s.CreateCard(domain.Flashcard{DeckID: deck.ID, Topic: "Derivatives", Order: 2, Front: "D1", Back: "B1"})
 
 	idx := 1
 	if _, err := s.TransferCards(ctx, domain.TransferCardsRequest{

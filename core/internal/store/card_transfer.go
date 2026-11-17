@@ -118,7 +118,7 @@ func reorderDeckChapterOnTransfer(
 	}
 
 	rows, err := tx.QueryContext(ctx,
-		`SELECT id, topic FROM cards WHERE deck_id = ? ORDER BY card_order ASC, id ASC`,
+		`SELECT id, topic FROM cards WHERE deck_id = ? ORDER BY card_order ASC, created_at ASC, rowid ASC`,
 		deckID,
 	)
 	if err != nil {
