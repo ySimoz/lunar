@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="lunar-appicon-title">
+  <title id="lunar-appicon-title">Lunar macOS App Icon</title>
+  <defs>
+    <linearGradient id="squircleBg" x1="256" y1="50" x2="256" y2="462" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#191F28" />
+      <stop offset="100%" stop-color="#0E1218" />
+    </linearGradient>
+    <linearGradient id="squircleRim" x1="256" y1="50" x2="256" y2="462" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.14" />
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.02" />
+    </linearGradient>
+    <linearGradient id="rearCardBg" x1="256" y1="112" x2="256" y2="356" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#222A36" />
+      <stop offset="100%" stop-color="#161C24" />
+    </linearGradient>
+    <linearGradient id="frontCardBg" x1="114" y1="138" x2="398" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2E3746" stop-opacity="0.82" />
+      <stop offset="100%" stop-color="#181E28" stop-opacity="0.92" />
+    </linearGradient>
+    <linearGradient id="frontCardRim" x1="256" y1="138" x2="256" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22" />
+      <stop offset="45%" stop-color="#FFFFFF" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.03" />
+    </linearGradient>
+    <linearGradient id="silverMoon" x1="182" y1="343" x2="340" y2="185" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#CBD5E1" />
+      <stop offset="55%" stop-color="#E2E8F0" />
+      <stop offset="100%" stop-color="#F8FAFC" />
+    </linearGradient>
+  </defs>
+
+  <path
+    d="M 170 50 H 342 C 424 50 462 88 462 170 V 342 C 462 424 424 462 342 462 H 170 C 88 462 50 424 50 342 V 170 C 50 88 88 50 170 50 Z"
+    fill="url(#squircleBg)"
+    stroke="url(#squircleRim)"
+    stroke-width="1.5"
+  />
+  <rect x="142" y="112" width="228" height="244" rx="20" fill="url(#rearCardBg)" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="1" />
+  <rect x="114" y="138" width="284" height="262" rx="28" fill="url(#frontCardBg)" stroke="url(#frontCardRim)" stroke-width="1.5" />
+  <path
+    d="M 244.1 185.0 A 80 80 0 1 0 340.0 280.9 A 68 68 0 0 1 244.1 185.0 Z"
+    fill="url(#silverMoon)"
+  />
+</svg>

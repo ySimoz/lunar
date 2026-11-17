@@ -1,0 +1,23 @@
+# Build outputs (debug and release bundles, binaries, icons)
+build/
+.build/
+LunarApp/.build/
+LunarApp/.swiftpm/
+DerivedData/
+core/lunar-core
+scripts/*.icns
+
+# Local databases, logs, and environment files
+*.db
+*.sqlite
+*.sqlite3
+*.log
+.env*
+!.env.example
+
+# macOS and editor metadata
+.DS_Store
+xcuserdata/
+*.xcuserstate
+.vscode/
+.idea/

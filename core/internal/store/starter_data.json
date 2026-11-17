@@ -1,0 +1,473 @@
+{
+  "decks": [
+    {
+      "id": "deck-real-analysis",
+      "userId": "default",
+      "title": "Real Analysis & Calculus",
+      "description": "Epsilon-Delta proofs, convergence, sequences, and fundamental theorems.",
+      "category": "Real Analysis",
+      "difficulty": "hard",
+      "color": "indigo",
+      "chapters": ["Sequences & Series", "Limits & Continuity", "Fundamental Calculus"],
+      "createdOffsetSec": -432000
+    },
+    {
+      "id": "deck-linear-algebra",
+      "userId": "default",
+      "title": "Linear Algebra & Spectral Theory",
+      "description": "Eigenvalues, SVD, inner product spaces, and canonical forms.",
+      "category": "Linear Algebra",
+      "difficulty": "medium",
+      "color": "emerald",
+      "chapters": ["Spectral Theory", "SVD & Decompositions", "Linear Transformations"],
+      "createdOffsetSec": -345600
+    },
+    {
+      "id": "deck-abstract-algebra",
+      "userId": "default",
+      "title": "Abstract Algebra: Groups & Rings",
+      "description": "Homomorphisms, quotients, Lagrange theorem, and isomorphism theorems.",
+      "category": "Abstract Algebra",
+      "difficulty": "hard",
+      "color": "violet",
+      "chapters": ["Group Homomorphisms", "Subgroups & Cosets", "Ring Ideals", "Sylow Theorems"],
+      "createdOffsetSec": -259200
+    },
+    {
+      "id": "deck-topology",
+      "userId": "default",
+      "title": "Point-Set Topology",
+      "description": "Open sets, compactness, Heine-Borel, and continuity.",
+      "category": "Topology",
+      "difficulty": "master",
+      "color": "rose",
+      "chapters": ["Compactness", "Topological Spaces", "Homeomorphisms"],
+      "createdOffsetSec": -172800
+    }
+  ],
+  "cards": [
+    {
+      "id": "card-ra-1",
+      "deckId": "deck-real-analysis",
+      "userId": "default",
+      "topic": "Limits & Continuity",
+      "order": 0,
+      "cardType": "definition",
+      "front": "State the precise **$\\epsilon$-$\\delta$ definition** of the limit:\n\n$$\\lim_{x \\to c} f(x) = L$$",
+      "back": "$$\\forall \\epsilon > 0, \\; \\exists \\delta > 0 \\text{ s.t. } 0 < |x - c| < \\delta \\implies |f(x) - L| < \\epsilon$$",
+      "layers": [
+        {
+          "id": "layer-ra-1-1",
+          "title": "Hint: Quantifier Order",
+          "content": "Remember that $\\epsilon$ represents the output tolerance and comes first: \"For every $\\epsilon > 0$...\""
+        },
+        {
+          "id": "layer-ra-1-2",
+          "title": "Step 1: The Input Constraint",
+          "content": "We need to find $\\delta > 0$ such that the punctured interval $0 < |x - c| < \\delta$ holds."
+        }
+      ],
+      "explanation": "The condition $0 < |x - c|$ excludes the point $x = c$ itself, reflecting that the limit depends only on behavior near $c$, not the value $f(c)$.",
+      "difficulty": "medium",
+      "repetition": 2,
+      "intervalDays": 6,
+      "easeFactor": 2.5,
+      "nextReviewOffsetSec": -3600,
+      "totalReviews": 2,
+      "correctCount": 2,
+      "incorrectCount": 0,
+      "createdOffsetSec": -432000
+    },
+    {
+      "id": "card-ra-2",
+      "deckId": "deck-real-analysis",
+      "userId": "default",
+      "topic": "Sequences & Series",
+      "order": 1,
+      "cardType": "theorem",
+      "front": "State and outline the proof of the **Bolzano-Weierstrass Theorem** for bounded sequences in $\\mathbb{R}$.",
+      "back": "**Theorem:** Every bounded sequence $(x_n)_{n=1}^\\infty \\subset \\mathbb{R}$ has a convergent subsequence $(x_{n_k})$.",
+      "layers": [
+        {
+          "id": "layer-ra-2-1",
+          "title": "Step 1: Boundedness & Interval Bisection",
+          "content": "Since $(x_n)$ is bounded, there exists $[a_0, b_0]$ containing all terms. Bisect $[a_0, b_0]$ into $[a_0, m_0]$ and $[m_0, b_0]$. At least one sub-interval contains infinitely many terms."
+        },
+        {
+          "id": "layer-ra-2-2",
+          "title": "Step 2: Nested Interval Construction",
+          "content": "Repeat inductively to obtain nested intervals $[a_k, b_k]$ with length:\n$$b_k - a_k = \\frac{b_0 - a_0}{2^k} \\xrightarrow{k \\to \\infty} 0$$\nEach $[a_k, b_k]$ contains infinitely many terms."
+        },
+        {
+          "id": "layer-ra-2-3",
+          "title": "Step 3: Subsequence Selection & Convergence",
+          "content": "Choose $x_{n_k} \\in [a_k, b_k]$ with $n_1 < n_2 < \\dots$. By the Nested Interval Property, $\\bigcap_k [a_k, b_k] = \\{L\\}$. By Squeeze Theorem, $x_{n_k} \\to L$."
+        }
+      ],
+      "explanation": "Bolzano-Weierstrass is equivalent to the completeness axiom of $\\mathbb{R}$ and is foundational to proving the Extreme Value Theorem.",
+      "difficulty": "hard",
+      "repetition": 1,
+      "intervalDays": 1,
+      "easeFactor": 2.4,
+      "nextReviewOffsetSec": 86400,
+      "totalReviews": 1,
+      "correctCount": 1,
+      "incorrectCount": 0,
+      "createdOffsetSec": -345600
+    },
+    {
+      "id": "card-ra-3",
+      "deckId": "deck-real-analysis",
+      "userId": "default",
+      "topic": "Limits & Continuity",
+      "order": 2,
+      "cardType": "theorem",
+      "front": "What is the **Cauchy-Schwarz Inequality** in an inner product space $V$, and when does equality hold?",
+      "back": "$$|\\langle u, v \\rangle|^2 \\le \\langle u, u \\rangle \\langle v, v \\rangle = \\|u\\|^2 \\|v\\|^2$$\n\nEquality holds if and only if $u$ and $v$ are **linearly dependent** (i.e., $u = \\lambda v$ or $v = 0$).",
+      "layers": [
+        {
+          "id": "layer-ra-3-1",
+          "title": "Hint: Quadratic discriminant approach",
+          "content": "Consider the quadratic form $p(t) = \\|u + t v\\|^2 \\ge 0$ for all $t \\in \\mathbb{R}$."
+        },
+        {
+          "id": "layer-ra-3-2",
+          "title": "Step 1: Expand the norm",
+          "content": "$$p(t) = \\langle u + tv, u + tv \\rangle = \\|u\\|^2 + 2t\\text{Re}\\langle u, v \\rangle + t^2 \\|v\\|^2 \\ge 0$$\nSince $p(t) \\ge 0$ for all $t$, the quadratic discriminant $\\Delta \\le 0$."
+        }
+      ],
+      "explanation": "The Cauchy-Schwarz inequality immediately yields the Triangle Inequality: $\\|u + v\\| \\le \\|u\\| + \\|v\\|$.",
+      "difficulty": "medium",
+      "repetition": 3,
+      "intervalDays": 12,
+      "easeFactor": 2.6,
+      "nextReviewOffsetSec": 691200,
+      "totalReviews": 3,
+      "correctCount": 3,
+      "incorrectCount": 0,
+      "createdOffsetSec": -432000
+    },
+    {
+      "id": "card-ra-4",
+      "deckId": "deck-real-analysis",
+      "userId": "default",
+      "topic": "Sequences & Series",
+      "order": 3,
+      "cardType": "example",
+      "front": "Write the **Maclaurin series** expansions for $\\sin(x)$ and $e^x$, with their radii of convergence $R$.",
+      "back": "$$e^x = \\sum_{n=0}^{\\infty} \\frac{x^n}{n!} = 1 + x + \\frac{x^2}{2!} + \\dots \\quad (R = \\infty)$$\n\n$$\\sin(x) = \\sum_{n=0}^{\\infty} (-1)^n \\frac{x^{2n+1}}{(2n+1)!} = x - \\frac{x^3}{3!} + \\frac{x^5}{5!} - \\dots \\quad (R = \\infty)$$",
+      "layers": [],
+      "explanation": "Both series have an infinite radius of convergence ($R = \\infty$) due to the factorial growth in the denominator.",
+      "difficulty": "easy",
+      "repetition": 4,
+      "intervalDays": 25,
+      "easeFactor": 2.7,
+      "nextReviewOffsetSec": 1728000,
+      "totalReviews": 4,
+      "correctCount": 4,
+      "incorrectCount": 0,
+      "createdOffsetSec": -518400
+    },
+    {
+      "id": "card-ra-5",
+      "deckId": "deck-real-analysis",
+      "userId": "default",
+      "topic": "Fundamental Calculus",
+      "order": 4,
+      "cardType": "theorem",
+      "front": "State the **Fundamental Theorem of Calculus (Parts 1 & 2)**.",
+      "back": "**Part 1:** If $f$ is continuous on $[a, b]$ and $F(x) = \\int_a^x f(t)\\,dt$, then $F$ is differentiable on $(a, b)$ and:\n$$F'(x) = f(x)$$\n\n**Part 2:** If $f$ has an antiderivative $F$ on $[a, b]$, then:\n$$\\int_a^b f(x)\\,dx = F(b) - F(a)$$",
+      "layers": [
+        {
+          "id": "layer-ra-5-1",
+          "title": "Step 1: Core Insight",
+          "content": "Differentiation and integration are inverse mathematical operations."
+        }
+      ],
+      "difficulty": "easy",
+      "repetition": 2,
+      "intervalDays": 6,
+      "easeFactor": 2.5,
+      "nextReviewOffsetSec": -10,
+      "totalReviews": 2,
+      "correctCount": 2,
+      "incorrectCount": 0,
+      "createdOffsetSec": -345600
+    },
+    {
+      "id": "card-la-1",
+      "deckId": "deck-linear-algebra",
+      "userId": "default",
+      "topic": "Spectral Theory",
+      "order": 0,
+      "cardType": "theorem",
+      "front": "State the **Spectral Theorem for Real Symmetric Matrices** ($A \\in \\mathbb{R}^{n \\times n}$ where $A^T = A$).",
+      "back": "If $A$ is real and symmetric, then:\n1. All eigenvalues of $A$ are **real**.\n2. Eigenvectors corresponding to distinct eigenvalues are **orthogonal**.\n3. There exists an orthogonal matrix $Q$ ($Q^T Q = I$) and diagonal matrix $\\Lambda$ such that:\n$$A = Q \\Lambda Q^T = \\sum_{i=1}^n \\lambda_i q_i q_i^T$$",
+      "layers": [
+        {
+          "id": "layer-la-1-1",
+          "title": "Step 1: Reality of Eigenvalues",
+          "content": "Let $Ax = \\lambda x$. Take conjugate transpose: $x^* A x = \\lambda x^* x$. Since $A$ is real symmetric, $x^* A x \\in \\mathbb{R}$, hence $\\lambda = \\bar{\\lambda} \\in \\mathbb{R}$."
+        },
+        {
+          "id": "layer-la-1-2",
+          "title": "Step 2: Orthogonal Eigenspaces",
+          "content": "For $\\lambda \\neq \\mu$: $\\lambda \\langle x, y \\rangle = \\langle Ax, y \\rangle = \\langle x, Ay \\rangle = \\mu \\langle x, y \\rangle \\implies (\\lambda - \\mu)\\langle x, y \\rangle = 0 \\implies x \\perp y$."
+        }
+      ],
+      "explanation": "Geometrically, symmetric matrices represent stretching along orthogonal principal axes with no shearing.",
+      "difficulty": "hard",
+      "repetition": 1,
+      "intervalDays": 1,
+      "easeFactor": 2.5,
+      "nextReviewOffsetSec": -50,
+      "totalReviews": 1,
+      "correctCount": 1,
+      "incorrectCount": 0,
+      "createdOffsetSec": -259200
+    },
+    {
+      "id": "card-la-2",
+      "deckId": "deck-linear-algebra",
+      "userId": "default",
+      "topic": "SVD & Decompositions",
+      "order": 1,
+      "cardType": "definition",
+      "front": "Define the **Singular Value Decomposition (SVD)** of an arbitrary matrix $A \\in \\mathbb{R}^{m \\times n}$.",
+      "back": "Every matrix $A \\in \\mathbb{R}^{m \\times n}$ can be factored as:\n$$A = U \\Sigma V^T$$\nwhere:\n- $U \\in \\mathbb{R}^{m \\times m}$ is orthogonal (left singular vectors)\n- $\\Sigma \\in \\mathbb{R}^{m \\times n}$ is rectangular diagonal with singular values $\\sigma_1 \\ge \\sigma_2 \\ge \\dots \\ge \\sigma_r > 0$\n- $V \\in \\mathbb{R}^{n \\times n}$ is orthogonal (right singular vectors)",
+      "layers": [
+        {
+          "id": "layer-la-2-1",
+          "title": "Step 1: Relation to $A^T A$ and $A A^T$",
+          "content": "$V$ diagonalizes $A^T A$: $A^T A = V (\\Sigma^T \\Sigma) V^T$. Thus $\\sigma_i = \\sqrt{\\lambda_i(A^T A)}$.\n$U$ diagonalizes $A A^T$: $A A^T = U (\\Sigma \\Sigma^T) U^T$."
+        }
+      ],
+      "explanation": "SVD is the foundation of Principal Component Analysis (PCA), low-rank matrix approximation, and the pseudoinverse $A^+$.",
+      "difficulty": "medium",
+      "repetition": 0,
+      "intervalDays": 1,
+      "easeFactor": 2.5,
+      "nextReviewOffsetSec": 0,
+      "totalReviews": 0,
+      "correctCount": 0,
+      "incorrectCount": 0,
+      "createdOffsetSec": -172800
+    },
+    {
+      "id": "card-la-3",
+      "deckId": "deck-linear-algebra",
+      "userId": "default",
+      "topic": "Linear Transformations",
+      "order": 2,
+      "cardType": "theorem",
+      "front": "State the **Rank-Nullity Theorem** for a linear transformation $T: V \\to W$ between finite-dimensional vector spaces.",
+      "back": "$$\\dim(V) = \\text{rank}(T) + \\text{nullity}(T) = \\dim(\\text{im}(T)) + \\dim(\\ker(T))$$",
+      "layers": [
+        {
+          "id": "layer-la-3-1",
+          "title": "Step 1: Basis extension sketch",
+          "content": "Let $\\{u_1, \\dots, u_k\\}$ be a basis for $\\ker(T)$. Extend this to a basis $\\{u_1, \\dots, u_k, v_1, \\dots, v_r\\}$ for $V$. Show that $\\{T(v_1), \\dots, T(v_r)\\}$ forms a basis for $\\text{im}(T)$."
+        }
+      ],
+      "difficulty": "easy",
+      "repetition": 3,
+      "intervalDays": 14,
+      "easeFactor": 2.6,
+      "nextReviewOffsetSec": 864000,
+      "totalReviews": 3,
+      "correctCount": 3,
+      "incorrectCount": 0,
+      "createdOffsetSec": -345600
+    },
+    {
+      "id": "card-la-4",
+      "deckId": "deck-linear-algebra",
+      "userId": "default",
+      "topic": "Spectral Theory",
+      "order": 3,
+      "cardType": "example",
+      "front": "State the **Cayley-Hamilton Theorem** and write the characteristic polynomial of a $2 \\times 2$ matrix $A = \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$.",
+      "back": "**Theorem:** Every square matrix $A$ satisfies its own characteristic equation: $p(A) = 0$.\n\nFor a $2 \\times 2$ matrix:\n$$p(\\lambda) = \\lambda^2 - \\text{tr}(A)\\lambda + \\det(A) = 0$$\n$$\\implies A^2 - (a+d)A + (ad - bc)I = 0$$",
+      "layers": [],
+      "difficulty": "medium",
+      "repetition": 1,
+      "intervalDays": 3,
+      "easeFactor": 2.5,
+      "nextReviewOffsetSec": 172800,
+      "totalReviews": 1,
+      "correctCount": 1,
+      "incorrectCount": 0,
+      "createdOffsetSec": -259200
+    },
+    {
+      "id": "card-aa-1",
+      "deckId": "deck-abstract-algebra",
+      "userId": "default",
+      "topic": "Group Homomorphisms",
+      "order": 0,
+      "cardType": "theorem",
+      "front": "State the **First Isomorphism Theorem for Groups**.",
+      "back": "Let $\\phi: G \\to H$ be a group homomorphism. Then:\n1. $\\ker(\\phi)$ is a normal subgroup of $G$ ($\\ker(\\phi) \\triangleleft G$).\n2. The quotient group $G / \\ker(\\phi)$ is isomorphic to the image:\n$$G / \\ker(\\phi) \\cong \\text{im}(\\phi)$$\nvia the isomorphism $\\bar{\\phi}(g \\ker(\\phi)) = \\phi(g)$.",
+      "layers": [
+        {
+          "id": "layer-aa-1-1",
+          "title": "Step 1: Well-definedness of $\\bar{\\phi}$",
+          "content": "If $g_1 \\ker(\\phi) = g_2 \\ker(\\phi)$, then $g_2^{-1} g_1 \\in \\ker(\\phi)$, so $\\phi(g_2^{-1} g_1) = e_H \\implies \\phi(g_1) = \\phi(g_2)$. Thus $\\bar{\\phi}$ is well-defined."
+        },
+        {
+          "id": "layer-aa-1-2",
+          "title": "Step 2: Injectivity (Kernel of quotient map)",
+          "content": "$\\bar{\\phi}(g \\ker(\\phi)) = e_H \\iff \\phi(g) = e_H \\iff g \\in \\ker(\\phi) \\iff g \\ker(\\phi) = e_{G/\\ker(\\phi)}$. Hence $\\ker(\\bar{\\phi})$ is trivial."
+        }
+      ],
+      "explanation": "This theorem establishes the precise relationship between homomorphisms, normal subgroups, and quotient groups.",
+      "difficulty": "hard",
+      "repetition": 2,
+      "intervalDays": 6,
+      "easeFactor": 2.5,
+      "nextReviewOffsetSec": -20,
+      "totalReviews": 2,
+      "correctCount": 2,
+      "incorrectCount": 0,
+      "createdOffsetSec": -259200
+    },
+    {
+      "id": "card-aa-2",
+      "deckId": "deck-abstract-algebra",
+      "userId": "default",
+      "topic": "Subgroups & Cosets",
+      "order": 1,
+      "cardType": "theorem",
+      "front": "State **Lagrange's Theorem** for finite groups and its immediate corollary regarding the order of elements.",
+      "back": "**Theorem:** If $H$ is a subgroup of a finite group $G$, then $|H|$ divides $|G|$:\n$$|G| = [G:H] \\cdot |H|$$\n\n**Corollary:** For any $g \\in G$, the order of $g$ divides $|G|$, which implies:\n$$g^{|G|} = e$$",
+      "layers": [
+        {
+          "id": "layer-aa-2-1",
+          "title": "Step 1: Coset Partition Idea",
+          "content": "The left cosets $gH$ form an equivalence partition of $G$, and each coset has identical cardinality $|gH| = |H|$."
+        }
+      ],
+      "difficulty": "medium",
+      "repetition": 2,
+      "intervalDays": 7,
+      "easeFactor": 2.5,
+      "nextReviewOffsetSec": 432000,
+      "totalReviews": 2,
+      "correctCount": 2,
+      "incorrectCount": 0,
+      "createdOffsetSec": -259200
+    },
+    {
+      "id": "card-aa-3",
+      "deckId": "deck-abstract-algebra",
+      "userId": "default",
+      "topic": "Ring Ideals",
+      "order": 2,
+      "cardType": "definition",
+      "front": "Define a **Ring Ideal** (two-sided) and explain when a quotient ring $R / I$ is an integral domain.",
+      "back": "A subset $I \\subseteq R$ is a two-sided ideal if:\n1. $(I, +)$ is an additive subgroup of $(R, +)$\n2. $\\forall r \\in R, x \\in I$: $rx \\in I$ and $xr \\in I$.\n\nFor a commutative ring with unity $R$, the quotient $R/I$ is an **integral domain** if and only if $I$ is a **prime ideal** ($ab \\in I \\implies a \\in I \\text{ or } b \\in I$).",
+      "layers": [],
+      "difficulty": "hard",
+      "repetition": 0,
+      "intervalDays": 1,
+      "easeFactor": 2.5,
+      "nextReviewOffsetSec": 0,
+      "totalReviews": 0,
+      "correctCount": 0,
+      "incorrectCount": 0,
+      "createdOffsetSec": -172800
+    },
+    {
+      "id": "card-aa-4",
+      "deckId": "deck-abstract-algebra",
+      "userId": "default",
+      "topic": "Group Homomorphisms",
+      "order": 3,
+      "cardType": "example",
+      "front": "State the **Three Sylow Theorems** for a finite group $G$ with $|G| = p^k m$ (where $p \\nmid m$).",
+      "back": "1. **Existence:** $G$ contains at least one subgroup of order $p^k$ (called a Sylow $p$-subgroup).\n2. **Conjugacy:** All Sylow $p$-subgroups are conjugate in $G$.\n3. **Number:** The number $n_p$ of Sylow $p$-subgroups satisfies:\n$$n_p \\equiv 1 \\pmod p \\quad \\text{and} \\quad n_p \\mid m$$",
+      "layers": [],
+      "difficulty": "master",
+      "repetition": 0,
+      "intervalDays": 1,
+      "easeFactor": 2.5,
+      "nextReviewOffsetSec": 0,
+      "totalReviews": 0,
+      "correctCount": 0,
+      "incorrectCount": 0,
+      "createdOffsetSec": -172800
+    },
+    {
+      "id": "card-top-1",
+      "deckId": "deck-topology",
+      "userId": "default",
+      "topic": "Compactness",
+      "order": 0,
+      "cardType": "theorem",
+      "front": "State the topological definition of a **Compact Space** and the **Heine-Borel Theorem** for $\\mathbb{R}^n$.",
+      "back": "**Compactness:** A space $X$ is compact if every open cover $\\{U_\\alpha\\}_{\\alpha \\in A}$ has a **finite subcover**:\n$$X \\subseteq \\bigcup_{\\alpha \\in A} U_\\alpha \\implies X \\subseteq U_{\\alpha_1} \\cup \\dots \\cup U_{\\alpha_k}$$\n\n**Heine-Borel Theorem:** In Euclidean space $\\mathbb{R}^n$ with standard metric, a subset $K \\subset \\mathbb{R}^n$ is compact $\\iff K$ is **closed and bounded**.",
+      "layers": [
+        {
+          "id": "layer-top-1-1",
+          "title": "Step 1: Infinite dimensional counter-example",
+          "content": "Heine-Borel fails in infinite dimensions! The closed unit ball in an infinite-dimensional Banach space is never compact (Riesz's Lemma)."
+        }
+      ],
+      "difficulty": "hard",
+      "repetition": 1,
+      "intervalDays": 2,
+      "easeFactor": 2.5,
+      "nextReviewOffsetSec": 86400,
+      "totalReviews": 1,
+      "correctCount": 1,
+      "incorrectCount": 0,
+      "createdOffsetSec": -172800
+    },
+    {
+      "id": "card-top-2",
+      "deckId": "deck-topology",
+      "userId": "default",
+      "topic": "Topological Spaces",
+      "order": 1,
+      "cardType": "definition",
+      "front": "Define **Connectedness** and state the **Intermediate Value Theorem** in topological terms.",
+      "back": "**Connected:** A topological space $X$ is connected if it cannot be written as the union of two disjoint nonempty open sets.\n\n**Topological IVT:** If $X$ is a connected space and $f: X \\to \\mathbb{R}$ is continuous, then $f(X)$ is a connected subset of $\\mathbb{R}$ (i.e., an interval).",
+      "layers": [],
+      "difficulty": "medium",
+      "repetition": 2,
+      "intervalDays": 8,
+      "easeFactor": 2.5,
+      "nextReviewOffsetSec": 345600,
+      "totalReviews": 2,
+      "correctCount": 2,
+      "incorrectCount": 0,
+      "createdOffsetSec": -259200
+    },
+    {
+      "id": "card-top-3",
+      "deckId": "deck-topology",
+      "userId": "default",
+      "topic": "Compactness",
+      "order": 2,
+      "cardType": "example",
+      "front": "What is a **Homeomorphism**, and are the open interval $(0, 1)$ and the real line $\\mathbb{R}$ homeomorphic?",
+      "back": "A function $f: X \\to Y$ is a **homeomorphism** if it is a bijection, and both $f$ and $f^{-1}$ are continuous.\n\n**Yes**, $(0, 1) \\cong \\mathbb{R}$ via:\n$$f(x) = \\tan\\left(\\pi\\left(x - \\frac{1}{2}\\right)\\right)$$",
+      "layers": [
+        {
+          "id": "layer-top-3-1",
+          "title": "Step 1: Algebraic alternative map",
+          "content": "Another algebraic homeomorphism is $g(x) = \\frac{2x - 1}{x(1 - x)}$."
+        }
+      ],
+      "difficulty": "easy",
+      "repetition": 3,
+      "intervalDays": 16,
+      "easeFactor": 2.6,
+      "nextReviewOffsetSec": 1036800,
+      "totalReviews": 3,
+      "correctCount": 3,
+      "incorrectCount": 0,
+      "createdOffsetSec": -345600
+    }
+  ]
+}
