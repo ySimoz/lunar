@@ -132,7 +132,7 @@ public struct LibraryView: View {
         .searchable(
             text: $libraryVM.searchQuery,
             isPresented: $isSearchPresented,
-            placement: .toolbarPrincipal,
+            placement: .lunarToolbar,
             prompt: "Search decks"
         )
         .background {

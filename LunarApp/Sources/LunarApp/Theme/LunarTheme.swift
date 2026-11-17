@@ -188,6 +188,18 @@ public extension View {
     }
 }
 
+public extension SearchFieldPlacement {
+    /// Centers toolbar search on macOS 26+ SDKs while keeping macOS 14/15 SDK compatibility.
+    static var lunarToolbar: SearchFieldPlacement {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            return .toolbarPrincipal
+        }
+        #endif
+        return .toolbar
+    }
+}
+
 /// Applies neutral monochrome macOS window vibrancy backed against wallpaper color bleed.
 public struct LunarWindowVibrancyModifier: ViewModifier {
     public init() {}

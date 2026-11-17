@@ -43,6 +43,10 @@ public struct DeckDetailView: View {
     }
 
     public var body: some View {
+        withDialogs(withSheets(withLifecycleAndToolbar(splitContent)))
+    }
+
+    private var splitContent: some View {
         HStack(spacing: 0) {
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
@@ -89,82 +93,90 @@ public struct DeckDetailView: View {
         }
         .animation(LunarTokens.revealAnimation, value: detailVM.isMultiSelectMode)
         .animation(LunarTokens.revealAnimation, value: showInspector)
-        .navigationTitle(detailVM.deck.title)
-        .searchable(
-            text: $detailVM.searchQuery,
-            isPresented: $isSearchPresented,
-            placement: .toolbarPrincipal,
-            prompt: "Search cards"
-        )
-        .background {
-            Button("") {
-                isSearchPresented = true
-            }
-            .keyboardShortcut("f", modifiers: .command)
-            .hidden()
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Menu {
-                    Button("Edit Deck") {
-                        onEditDeck(detailVM.deck)
-                    }
-                    Divider()
-                    Button("Import") {
-                        libraryVM.requestedImportExportTab = .import
-                    }
-                    Button("Export") {
-                        libraryVM.requestedImportExportDeckId = detailVM.deck.id
-                        libraryVM.requestedImportExportTab = .export
-                    }
-                    Divider()
-                    Button("Delete Deck", role: .destructive) {
-                        isConfirmingDeckDelete = true
-                    }
-                } label: {
-                    Label("Deck Actions", systemImage: "ellipsis.circle")
-                }
-                .menuIndicator(.hidden)
-                .disabled(detailVM.isMultiSelectMode)
-                .help("Deck Actions")
+    }
 
-                Button {
-                    withAnimation(LunarTokens.revealAnimation) {
-                        showInspector.toggle()
-                    }
-                } label: {
-                    Label("Inspector", systemImage: "sidebar.right")
+    private func withLifecycleAndToolbar<Content: View>(_ content: Content) -> some View {
+        content
+            .navigationTitle(detailVM.deck.title)
+            .searchable(
+                text: $detailVM.searchQuery,
+                isPresented: $isSearchPresented,
+                placement: .lunarToolbar,
+                prompt: "Search cards"
+            )
+            .background {
+                Button("") {
+                    isSearchPresented = true
                 }
-                .keyboardShortcut("i", modifiers: .command)
-                .disabled(detailVM.isMultiSelectMode)
-                .help("Toggle Card Inspector (⌘I)")
+                .keyboardShortcut("f", modifiers: .command)
+                .hidden()
             }
-        }
-        .onChange(of: deck.id) { _, _ in
-            libraryVM.dragCoordinator.resetDeckDetailFrames()
-            detailVM.sync(deck: deck, cards: libraryVM.cards(for: deck.id))
-        }
-        .onDisappear {
-            libraryVM.dragCoordinator.resetDeckDetailFrames()
-            libraryVM.dragCoordinator.endDrag()
-        }
-        .task(id: deck.id) {
-            await detailVM.loadCards()
-            if detailVM.deck.id == deck.id {
-                libraryVM.syncCards(detailVM.cards, for: deck.id)
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Menu {
+                        Button("Edit Deck") {
+                            onEditDeck(detailVM.deck)
+                        }
+                        Divider()
+                        Button("Import") {
+                            libraryVM.requestedImportExportTab = .import
+                        }
+                        Button("Export") {
+                            libraryVM.requestedImportExportDeckId = detailVM.deck.id
+                            libraryVM.requestedImportExportTab = .export
+                        }
+                        Divider()
+                        Button("Delete Deck", role: .destructive) {
+                            isConfirmingDeckDelete = true
+                        }
+                    } label: {
+                        Label("Deck Actions", systemImage: "ellipsis.circle")
+                    }
+                    .menuIndicator(.hidden)
+                    .disabled(detailVM.isMultiSelectMode)
+                    .help("Deck Actions")
+
+                    Button {
+                        withAnimation(LunarTokens.revealAnimation) {
+                            showInspector.toggle()
+                        }
+                    } label: {
+                        Label("Inspector", systemImage: "sidebar.right")
+                    }
+                    .keyboardShortcut("i", modifiers: .command)
+                    .disabled(detailVM.isMultiSelectMode)
+                    .help("Toggle Card Inspector (⌘I)")
+                }
             }
-        }
-        .onChange(of: libraryVM.decks) { _, updatedDecks in
-            if let latest = updatedDecks.first(where: { $0.id == deck.id }) {
-                detailVM.deck = latest
+            .onChange(of: deck.id) { _, _ in
+                libraryVM.dragCoordinator.resetDeckDetailFrames()
+                detailVM.sync(deck: deck, cards: libraryVM.cards(for: deck.id))
             }
-        }
-        .onChange(of: libraryVM.cardsByDeck[deck.id]) { _, updatedCards in
-            if let updatedCards, detailVM.deck.id == deck.id {
-                detailVM.cards = updatedCards.sorted { $0.order < $1.order }
+            .onDisappear {
+                libraryVM.dragCoordinator.resetDeckDetailFrames()
+                libraryVM.dragCoordinator.endDrag()
             }
-        }
-        .sheet(isPresented: $isCreatingCard) {
+            .task(id: deck.id) {
+                await detailVM.loadCards()
+                if detailVM.deck.id == deck.id {
+                    libraryVM.syncCards(detailVM.cards, for: deck.id)
+                }
+            }
+            .onChange(of: libraryVM.decks) { _, updatedDecks in
+                if let latest = updatedDecks.first(where: { $0.id == deck.id }) {
+                    detailVM.deck = latest
+                }
+            }
+            .onChange(of: libraryVM.cardsByDeck[deck.id]) { _, updatedCards in
+                if let updatedCards, detailVM.deck.id == deck.id {
+                    detailVM.cards = updatedCards.sorted { $0.order < $1.order }
+                }
+            }
+    }
+
+    private func withSheets<Content: View>(_ content: Content) -> some View {
+        content
+            .sheet(isPresented: $isCreatingCard) {
             CardEditorSheet(
                 deck: detailVM.deck,
                 initialTopic: newCardInitialTopic,
@@ -228,7 +240,11 @@ public struct DeckDetailView: View {
                 }
             }
         }
-        .confirmationDialog(
+    }
+
+    private func withDialogs<Content: View>(_ content: Content) -> some View {
+        content
+            .confirmationDialog(
             "Delete Chapter",
             isPresented: Binding(
                 get: { chapterPendingDelete != nil },
