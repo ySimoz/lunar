@@ -193,6 +193,8 @@ public struct StudySessionView: View {
                     .padding(.leading, LunarTokens.space2)
             }
 
+            undoButton
+
             Button {
                 showCardJump.toggle()
             } label: {
@@ -220,6 +222,22 @@ public struct StudySessionView: View {
         }
         .padding(.horizontal, LunarTokens.space5)
         .padding(.vertical, LunarTokens.space3)
+    }
+
+    private var undoButton: some View {
+        Button {
+            Task { await vm.undoLastRating() }
+        } label: {
+            HStack(spacing: LunarTokens.space1) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.system(size: 11, weight: .medium))
+                Text("Undo")
+                    .font(.system(size: 12, weight: .medium))
+            }
+        }
+        .buttonStyle(MonochromeGlassButtonStyle(compact: true))
+        .disabled(!vm.canUndo)
+        .help("Undo last rating (⌘Z)")
     }
 
     private var hairlineProgressStrip: some View {
@@ -632,6 +650,7 @@ public struct StudySessionView: View {
 
                 ShortcutRow(action: "Next step / Reveal", keys: ["Space", "↓"])
                 ShortcutRow(action: "Rate recall", keys: ["1–4"])
+                ShortcutRow(action: "Undo rating", keys: ["⌘Z"])
                 ShortcutRow(action: "Toggle shuffle", keys: ["S"])
                 ShortcutRow(action: "Leave session", keys: ["Esc"])
             }
@@ -766,6 +785,12 @@ public struct StudySessionView: View {
                 Task { await vm.toggleShuffle() }
             }
             .keyboardShortcut("s", modifiers: [])
+
+            Button("") {
+                guard vm.canUndo, !showExitPrompt, !showCardJump, !showOptions else { return }
+                Task { await vm.undoLastRating() }
+            }
+            .keyboardShortcut("z", modifiers: .command)
 
             Button("") {
                 handleBackAction()

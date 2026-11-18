@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS review_logs (
 	timestamp TEXT NOT NULL,
 	rating INTEGER NOT NULL,
 	interval_days INTEGER NOT NULL,
-	duration_ms INTEGER
+	duration_ms INTEGER,
+	prev_state TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_review_logs_card_id ON review_logs(card_id, id);

@@ -2,11 +2,14 @@ package store_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 
 	"lunar/core/internal/domain"
 	"lunar/core/internal/store"
@@ -690,5 +693,216 @@ func TestTransferCardsWithTargetIndex(t *testing.T) {
 	}
 	if cards[1].Topic != "Limits" {
 		t.Fatalf("expected moved card topic Limits, got %q", cards[1].Topic)
+	}
+}
+
+func TestUndoCardReview_SingleSequentialEmptyAndExplicitID(t *testing.T) {
+	s := openTestStore(t)
+	t0 := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
+
+	deck, err := s.CreateDeck(domain.Deck{Title: "Analysis", Category: domain.CategoryRealAnalysis, Difficulty: domain.DifficultyMedium})
+	if err != nil {
+		t.Fatalf("CreateDeck: %v", err)
+	}
+	initial, err := s.CreateCard(domain.Flashcard{
+		DeckID:     deck.ID,
+		Front:      "State Bolzano-Weierstrass.",
+		Back:       "Every bounded sequence in R has a convergent subsequence.",
+		Difficulty: domain.DifficultyMedium,
+	})
+	if err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+
+	if _, err := s.UndoCardReview("missing-card", nil); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("UndoCardReview missing card = %v, want ErrNotFound", err)
+	}
+	if _, err := s.UndoCardReview(initial.ID, nil); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("UndoCardReview empty logs = %v, want ErrConflict", err)
+	}
+	badID := int64(0)
+	if _, err := s.UndoCardReview(initial.ID, &badID); !errors.Is(err, store.ErrValidation) {
+		t.Fatalf("UndoCardReview non-positive reviewLogId = %v, want ErrValidation", err)
+	}
+
+	after1, err := s.ReviewCard(initial.ID, 3, nil, t0)
+	if err != nil {
+		t.Fatalf("ReviewCard #1: %v", err)
+	}
+	dur2 := int64(420)
+	after2, err := s.ReviewCard(initial.ID, 4, &dur2, t0.Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("ReviewCard #2: %v", err)
+	}
+	after3, err := s.ReviewCard(initial.ID, 1, nil, t0.Add(48*time.Hour))
+	if err != nil {
+		t.Fatalf("ReviewCard #3: %v", err)
+	}
+	if after3.TotalReviews != 3 || after3.IncorrectCount != 1 || len(after3.History) != 3 {
+		t.Fatalf("unexpected after3 state: %+v", after3)
+	}
+
+	// Non-latest explicit reviewLogId is rejected with ErrConflict.
+	var firstLogID, secondLogID int64
+	if err := s.DB().QueryRow(`SELECT id FROM review_logs WHERE card_id = ? ORDER BY id ASC LIMIT 1`, initial.ID).Scan(&firstLogID); err != nil {
+		t.Fatalf("query firstLogID: %v", err)
+	}
+	if err := s.DB().QueryRow(`SELECT id FROM review_logs WHERE card_id = ? ORDER BY id ASC LIMIT 1 OFFSET 1`, initial.ID).Scan(&secondLogID); err != nil {
+		t.Fatalf("query secondLogID: %v", err)
+	}
+	if _, err := s.UndoCardReview(initial.ID, &firstLogID); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("UndoCardReview non-latest log = %v, want ErrConflict", err)
+	}
+
+	// Undo #3 -> restores after2 exactly.
+	restored2, err := s.UndoCardReview(initial.ID, nil)
+	if err != nil {
+		t.Fatalf("UndoCardReview #3: %v", err)
+	}
+	if restored2.Repetition != after2.Repetition ||
+		restored2.IntervalDays != after2.IntervalDays ||
+		restored2.EaseFactor != after2.EaseFactor ||
+		restored2.NextReviewDate != after2.NextReviewDate ||
+		restored2.LastReviewed != after2.LastReviewed ||
+		restored2.TotalReviews != after2.TotalReviews ||
+		restored2.CorrectCount != after2.CorrectCount ||
+		restored2.IncorrectCount != after2.IncorrectCount ||
+		len(restored2.History) != 2 {
+		t.Fatalf("restored2 mismatch:\ngot:  %+v\nwant: %+v", restored2, after2)
+	}
+
+	// Undo #2 with explicit latest log ID -> restores after1.
+	restored1, err := s.UndoCardReview(initial.ID, &secondLogID)
+	if err != nil {
+		t.Fatalf("UndoCardReview #2 explicit: %v", err)
+	}
+	if restored1.Repetition != after1.Repetition ||
+		restored1.IntervalDays != after1.IntervalDays ||
+		restored1.EaseFactor != after1.EaseFactor ||
+		restored1.NextReviewDate != after1.NextReviewDate ||
+		restored1.TotalReviews != 1 ||
+		len(restored1.History) != 1 {
+		t.Fatalf("restored1 mismatch:\ngot:  %+v\nwant: %+v", restored1, after1)
+	}
+
+	// Undo #1 -> restores initial unreviewed state.
+	restored0, err := s.UndoCardReview(initial.ID, nil)
+	if err != nil {
+		t.Fatalf("UndoCardReview #1: %v", err)
+	}
+	if restored0.Repetition != initial.Repetition ||
+		restored0.IntervalDays != initial.IntervalDays ||
+		restored0.EaseFactor != initial.EaseFactor ||
+		restored0.NextReviewDate != initial.NextReviewDate ||
+		restored0.LastReviewed != initial.LastReviewed ||
+		restored0.TotalReviews != 0 ||
+		restored0.CorrectCount != 0 ||
+		restored0.IncorrectCount != 0 ||
+		restored0.UpdatedAt != initial.UpdatedAt ||
+		len(restored0.History) != 0 {
+		t.Fatalf("restored0 mismatch:\ngot:  %+v\nwant: %+v", restored0, initial)
+	}
+
+	// Subsequent undo on empty logs returns ErrConflict.
+	if _, err := s.UndoCardReview(initial.ID, nil); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("UndoCardReview after draining logs = %v, want ErrConflict", err)
+	}
+}
+
+func TestOpen_MigrationAddsPrevStateToLegacyReviewLogs(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy.db")
+	rawDB, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	legacySchema := `
+	CREATE TABLE decks (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL DEFAULT 'default',
+		title TEXT NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
+		category TEXT NOT NULL,
+		difficulty TEXT NOT NULL,
+		color TEXT NOT NULL DEFAULT 'indigo',
+		chapters_json TEXT NOT NULL DEFAULT '[]',
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	);
+	CREATE TABLE cards (
+		id TEXT PRIMARY KEY,
+		deck_id TEXT NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+		user_id TEXT NOT NULL DEFAULT 'default',
+		topic TEXT NOT NULL DEFAULT '',
+		card_order INTEGER NOT NULL DEFAULT 0,
+		card_type TEXT NOT NULL DEFAULT '',
+		front TEXT NOT NULL,
+		back TEXT NOT NULL,
+		explanation TEXT NOT NULL DEFAULT '',
+		difficulty TEXT NOT NULL,
+		tags_json TEXT NOT NULL DEFAULT '[]',
+		repetition INTEGER NOT NULL DEFAULT 0,
+		interval_days INTEGER NOT NULL DEFAULT 1,
+		ease_factor REAL NOT NULL DEFAULT 2.5,
+		next_review_date TEXT NOT NULL,
+		last_reviewed TEXT NOT NULL DEFAULT '',
+		total_reviews INTEGER NOT NULL DEFAULT 0,
+		correct_count INTEGER NOT NULL DEFAULT 0,
+		incorrect_count INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	);
+	CREATE TABLE review_logs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+		timestamp TEXT NOT NULL,
+		rating INTEGER NOT NULL,
+		interval_days INTEGER NOT NULL,
+		duration_ms INTEGER
+	);
+	INSERT INTO decks (id, title, category, difficulty, created_at, updated_at)
+	VALUES ('d-legacy', 'Legacy', 'Calculus', 'easy', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z');
+	INSERT INTO cards (id, deck_id, front, back, difficulty, repetition, interval_days, ease_factor, next_review_date, last_reviewed, total_reviews, correct_count, created_at, updated_at)
+	VALUES ('c-legacy', 'd-legacy', 'Q', 'A', 'easy', 1, 1, 2.5, '2026-11-02T04:00:00Z', '2026-11-01T10:00:00Z', 1, 1, '2026-11-01T00:00:00Z', '2026-11-01T10:00:00Z');
+	INSERT INTO review_logs (card_id, timestamp, rating, interval_days, duration_ms)
+	VALUES ('c-legacy', '2026-11-01T10:00:00Z', 3, 1, 500);`
+	if _, err := rawDB.Exec(legacySchema); err != nil {
+		t.Fatalf("seed legacy schema: %v", err)
+	}
+	_ = rawDB.Close()
+
+	// Opening runs idempotent migration without losing legacy data.
+	s, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("store.Open migration #1: %v", err)
+	}
+	_ = s.Close()
+
+	s, err = store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("store.Open migration #2 (idempotent): %v", err)
+	}
+	defer s.Close()
+
+	// Legacy log without prev_state cannot be undone cleanly (ErrConflict).
+	if _, err := s.UndoCardReview("c-legacy", nil); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("UndoCardReview on legacy log = %v, want ErrConflict", err)
+	}
+
+	// New review on migrated DB stores prev_state and can be undone back to legacy post-review-1 state.
+	beforeNew, err := s.GetCard("c-legacy")
+	if err != nil {
+		t.Fatalf("GetCard: %v", err)
+	}
+	if _, err := s.ReviewCard("c-legacy", 4, nil, time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("ReviewCard after migration: %v", err)
+	}
+	restored, err := s.UndoCardReview("c-legacy", nil)
+	if err != nil {
+		t.Fatalf("UndoCardReview after migration: %v", err)
+	}
+	if restored.TotalReviews != beforeNew.TotalReviews ||
+		restored.IntervalDays != beforeNew.IntervalDays ||
+		len(restored.History) != 1 {
+		t.Fatalf("restored migrated card mismatch: got %+v, want %+v", restored, beforeNew)
 	}
 }

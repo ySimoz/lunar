@@ -691,3 +691,86 @@ func TestReorderDecksAPI(t *testing.T) {
 		t.Fatalf("indexed transfer = %d: %s", okIdx.Code, okIdx.Body.String())
 	}
 }
+
+func TestAPI_UndoCardReview(t *testing.T) {
+	h := newTestServer(t)
+
+	// Missing card -> 404
+	if res := doJSON(t, h, http.MethodPost, "/api/cards/does-not-exist/undo", nil); res.Code != http.StatusNotFound {
+		t.Fatalf("POST undo missing card = %d, want 404", res.Code)
+	}
+
+	// Card with no reviews -> 409 Conflict
+	if res := doJSON(t, h, http.MethodPost, "/api/cards/card-ra-1/undo", nil); res.Code != http.StatusConflict {
+		t.Fatalf("POST undo with no logs = %d, want 409 (%s)", res.Code, res.Body.String())
+	}
+
+	// Malformed JSON body -> 400
+	badReq := httptest.NewRequest(http.MethodPost, "/api/cards/card-ra-1/undo", strings.NewReader("{bad"))
+	badRec := httptest.NewRecorder()
+	h.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("POST undo malformed JSON = %d, want 400", badRec.Code)
+	}
+
+	// Invalid reviewLogId -> 400
+	if res := doJSON(t, h, http.MethodPost, "/api/cards/card-ra-1/undo", map[string]any{"reviewLogId": 0}); res.Code != http.StatusBadRequest {
+		t.Fatalf("POST undo reviewLogId=0 = %d, want 400", res.Code)
+	}
+
+	// Fetch initial state of card-ra-1
+	cardsRes := doJSON(t, h, http.MethodGet, "/api/decks/deck-real-analysis/cards", nil)
+	var cards []domain.Flashcard
+	_ = json.Unmarshal(cardsRes.Body.Bytes(), &cards)
+	var initial domain.Flashcard
+	for _, c := range cards {
+		if c.ID == "card-ra-1" {
+			initial = c
+			break
+		}
+	}
+
+	// Review twice (Good -> Again)
+	rev1 := doJSON(t, h, http.MethodPost, "/api/cards/card-ra-1/review", map[string]any{"rating": 3})
+	if rev1.Code != http.StatusOK {
+		t.Fatalf("review 1 = %d: %s", rev1.Code, rev1.Body.String())
+	}
+	var after1 domain.Flashcard
+	_ = json.Unmarshal(rev1.Body.Bytes(), &after1)
+
+	rev2 := doJSON(t, h, http.MethodPost, "/api/cards/card-ra-1/review", map[string]any{"rating": 1})
+	if rev2.Code != http.StatusOK {
+		t.Fatalf("review 2 = %d: %s", rev2.Code, rev2.Body.String())
+	}
+
+	// Undo #1 (empty body) -> restores after1
+	undo1 := doJSON(t, h, http.MethodPost, "/api/cards/card-ra-1/undo", nil)
+	if undo1.Code != http.StatusOK {
+		t.Fatalf("undo 1 = %d: %s", undo1.Code, undo1.Body.String())
+	}
+	var got1 domain.Flashcard
+	if err := json.Unmarshal(undo1.Body.Bytes(), &got1); err != nil {
+		t.Fatalf("decode undo 1: %v", err)
+	}
+	if got1.TotalReviews != after1.TotalReviews || got1.IncorrectCount != after1.IncorrectCount ||
+		got1.Repetition != after1.Repetition || len(got1.History) != 1 {
+		t.Fatalf("undo 1 mismatch: got %+v, want %+v", got1, after1)
+	}
+
+	// Undo #2 ({}) -> restores initial
+	undo2 := doJSON(t, h, http.MethodPost, "/api/cards/card-ra-1/undo", map[string]any{})
+	if undo2.Code != http.StatusOK {
+		t.Fatalf("undo 2 = %d: %s", undo2.Code, undo2.Body.String())
+	}
+	var got0 domain.Flashcard
+	_ = json.Unmarshal(undo2.Body.Bytes(), &got0)
+	if got0.TotalReviews != initial.TotalReviews || got0.Repetition != initial.Repetition ||
+		got0.EaseFactor != initial.EaseFactor || len(got0.History) != 0 {
+		t.Fatalf("undo 2 mismatch: got %+v, want %+v", got0, initial)
+	}
+
+	// Undo #3 -> 409 Conflict
+	if undo3 := doJSON(t, h, http.MethodPost, "/api/cards/card-ra-1/undo", nil); undo3.Code != http.StatusConflict {
+		t.Fatalf("undo 3 = %d, want 409", undo3.Code)
+	}
+}

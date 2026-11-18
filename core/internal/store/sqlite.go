@@ -20,6 +20,8 @@ var (
 	ErrNotFound = errors.New("record not found")
 	// ErrValidation indicates input failed domain or structural validation.
 	ErrValidation = errors.New("validation failed")
+	// ErrConflict indicates an operation conflicts with current resource state.
+	ErrConflict = errors.New("conflict")
 )
 
 // Store wraps the SQLite database connection and schema migrations.
@@ -93,12 +95,15 @@ func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schemaSQL); err != nil {
 		return err
 	}
-	return s.ensureDeckOrderColumn()
+	if err := s.ensureColumn("decks", "deck_order", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	return s.ensureColumn("review_logs", "prev_state", "TEXT NOT NULL DEFAULT ''")
 }
 
-// ensureDeckOrderColumn adds deck_order to pre-existing SQLite databases.
-func (s *Store) ensureDeckOrderColumn() error {
-	rows, err := s.db.Query(`PRAGMA table_info(decks)`)
+// ensureColumn idempotently adds a column to pre-existing SQLite tables.
+func (s *Store) ensureColumn(table, column, columnDef string) error {
+	rows, err := s.db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
 	if err != nil {
 		return err
 	}
@@ -112,14 +117,14 @@ func (s *Store) ensureDeckOrderColumn() error {
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
 			return err
 		}
-		if name == "deck_order" {
+		if name == column {
 			return nil
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`ALTER TABLE decks ADD COLUMN deck_order INTEGER NOT NULL DEFAULT 0`)
+	_, err = s.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, columnDef))
 	return err
 }
 

@@ -2,6 +2,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -53,6 +54,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PUT /api/cards/{id}", s.handleUpdateCard)
 	s.mux.HandleFunc("DELETE /api/cards/{id}", s.handleDeleteCard)
 	s.mux.HandleFunc("POST /api/cards/{id}/review", s.handleReviewCard)
+	s.mux.HandleFunc("POST /api/cards/{id}/undo", s.handleUndoCardReview)
 	s.mux.HandleFunc("GET /api/cards/{id}/predict", s.handlePredictCard)
 
 	s.mux.HandleFunc("GET /api/sessions", s.handleListSessions)
@@ -135,7 +137,31 @@ func (s *Server) handleReorderDecks(w http.ResponseWriter, r *http.Request) {
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	defer r.Body.Close()
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
-	dec := json.NewDecoder(r.Body)
+	return decodeJSONReader(r.Body, dst)
+}
+
+func decodeOptionalJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+	if r.Body == nil || r.Body == http.NoBody {
+		return nil
+	}
+	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return err
+		}
+		return errors.New("invalid JSON request body")
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	return decodeJSONReader(bytes.NewReader(raw), dst)
+}
+
+func decodeJSONReader(r io.Reader, dst any) error {
+	dec := json.NewDecoder(r)
 	if err := dec.Decode(dst); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
@@ -188,6 +214,8 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, store.ErrValidation):
 		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, store.ErrConflict):
+		writeError(w, http.StatusConflict, err.Error())
 	case isUniqueConstraintError(err):
 		writeError(w, http.StatusConflict, "record already exists")
 	default:
