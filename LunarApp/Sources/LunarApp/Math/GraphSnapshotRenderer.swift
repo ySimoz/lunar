@@ -3,43 +3,98 @@ import CoreGraphics
 import CoreText
 import Foundation
 
-/// Pre-filled flashcard draft generated from the current 2D Grapher state.
-public struct GraphCardDraft: Identifiable, Equatable, Sendable {
-    public let id: UUID
-    public let front: String
-    public let back: String
-    public let explanation: String
-    public let tags: [String]
-    public let cardType: CardType
-    public let imageDataURI: String
-    public let pngByteCount: Int
+/// Export raster format for external graph snapshots.
+public enum GraphImageFormat: String, Sendable {
+    case png
+    case jpeg
 
-    public init(
-        id: UUID = UUID(),
-        front: String,
-        back: String,
-        explanation: String,
-        tags: [String] = ["grapher"],
-        cardType: CardType = .example,
-        imageDataURI: String,
-        pngByteCount: Int
-    ) {
-        self.id = id
-        self.front = front
-        self.back = back
-        self.explanation = explanation
-        self.tags = tags
-        self.cardType = cardType
-        self.imageDataURI = imageDataURI
-        self.pngByteCount = pngByteCount
-    }
+    public var fileExtension: String { rawValue }
 }
 
-/// Renders a crisp, compact monochrome PNG diagram of plotted 2D curves and key points.
+/// Renders a crisp, compact monochrome diagram of plotted 2D curves and key points.
 public enum GraphSnapshotRenderer {
     public struct SnapshotPayload: Sendable, Equatable {
         public let pngData: Data
         public let dataURI: String
+    }
+
+    public static func defaultLabel(for equations: [EquationEntry]) -> String {
+        let visible = equations
+            .map { $0.expression.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !visible.isEmpty else { return "Graph" }
+        if visible.count == 1 {
+            let expr = String(visible[0].prefix(26))
+            return "Graph: \(expr)"
+        }
+        let joined = visible.prefix(2).joined(separator: ", ")
+        if visible.count == 2, joined.count <= 28 {
+            return "Graph: \(joined)"
+        }
+        return "Graph (\(visible.count) functions)"
+    }
+
+    public struct ExportViewport: Equatable, Sendable {
+        public let xRange: ClosedRange<Double>
+        public let yRange: ClosedRange<Double>
+        public let width: Int
+        public let height: Int
+        public let isCropped: Bool
+    }
+
+    /// Maps an optional normalized/screen crop rectangle to world bounds and aspect-preserved pixel dimensions.
+    public static func resolveExportViewport(
+        cropRect: CGRect?,
+        canvasSize: CGSize,
+        xRange: ClosedRange<Double>,
+        yRange: ClosedRange<Double>,
+        longestEdge: Int = 560
+    ) -> ExportViewport {
+        let clampedLongest = max(160, longestEdge)
+        let defaultAspect = canvasSize.width > 0 ? max(0.25, min(2.5, Double(canvasSize.height / canvasSize.width))) : 0.625
+
+        guard let rect = cropRect,
+              canvasSize.width > 20,
+              canvasSize.height > 20,
+              rect.width >= 12,
+              rect.height >= 12 else {
+            let w = clampedLongest
+            let h = max(120, Int((Double(w) * defaultAspect).rounded()))
+            return ExportViewport(xRange: xRange, yRange: yRange, width: w, height: h, isCropped: false)
+        }
+
+        let minNX = max(0.0, min(1.0, Double(rect.minX / canvasSize.width)))
+        let maxNX = max(minNX + 0.01, min(1.0, Double(rect.maxX / canvasSize.width)))
+        let minNY = max(0.0, min(1.0, Double(rect.minY / canvasSize.height)))
+        let maxNY = max(minNY + 0.01, min(1.0, Double(rect.maxY / canvasSize.height)))
+
+        let xSpan = max(1e-9, xRange.upperBound - xRange.lowerBound)
+        let ySpan = max(1e-9, yRange.upperBound - yRange.lowerBound)
+
+        let subMinX = xRange.lowerBound + minNX * xSpan
+        let subMaxX = xRange.lowerBound + maxNX * xSpan
+        let subMaxY = yRange.upperBound - minNY * ySpan
+        let subMinY = yRange.upperBound - maxNY * ySpan
+
+        let rectW = max(1.0, Double(rect.width))
+        let rectH = max(1.0, Double(rect.height))
+        let pixelW: Int
+        let pixelH: Int
+        if rectW >= rectH {
+            pixelW = clampedLongest
+            pixelH = max(120, Int((Double(clampedLongest) * (rectH / rectW)).rounded()))
+        } else {
+            pixelH = clampedLongest
+            pixelW = max(120, Int((Double(clampedLongest) * (rectW / rectH)).rounded()))
+        }
+
+        return ExportViewport(
+            xRange: subMinX...subMaxX,
+            yRange: subMinY...subMaxY,
+            width: pixelW,
+            height: pixelH,
+            isCropped: true
+        )
     }
 
     public static func renderPNG(
@@ -52,6 +107,67 @@ public enum GraphSnapshotRenderer {
         width: Int = 560,
         height: Int = 350
     ) -> SnapshotPayload? {
+        guard let pngData = renderImageData(
+            equations: equations,
+            parameters: parameters,
+            xRange: xRange,
+            yRange: yRange,
+            keyPoints: keyPoints,
+            format: .png,
+            isDark: isDark,
+            width: width,
+            height: height
+        ) else {
+            return nil
+        }
+
+        let base64 = pngData.base64EncodedString()
+        let dataURI = "data:image/png;base64,\(base64)"
+        return SnapshotPayload(pngData: pngData, dataURI: dataURI)
+    }
+
+    public static func renderImageData(
+        equations: [EquationEntry],
+        parameters: [Character: Double],
+        xRange: ClosedRange<Double>,
+        yRange: ClosedRange<Double>,
+        keyPoints: [GraphKeyPoint],
+        format: GraphImageFormat = .png,
+        isDark: Bool = false,
+        width: Int = 1120,
+        height: Int = 700
+    ) -> Data? {
+        guard let rep = renderBitmapRep(
+            equations: equations,
+            parameters: parameters,
+            xRange: xRange,
+            yRange: yRange,
+            keyPoints: keyPoints,
+            isDark: isDark,
+            width: width,
+            height: height
+        ) else {
+            return nil
+        }
+
+        switch format {
+        case .png:
+            return rep.representation(using: .png, properties: [:])
+        case .jpeg:
+            return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.92])
+        }
+    }
+
+    private static func renderBitmapRep(
+        equations: [EquationEntry],
+        parameters: [Character: Double],
+        xRange: ClosedRange<Double>,
+        yRange: ClosedRange<Double>,
+        keyPoints: [GraphKeyPoint],
+        isDark: Bool,
+        width: Int,
+        height: Int
+    ) -> NSBitmapImageRep? {
         guard width > 40, height > 40 else { return nil }
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
@@ -195,24 +311,60 @@ public enum GraphSnapshotRenderer {
         ctx.setLineWidth(2.0)
 
         for entry in equations where entry.isVisible {
-            guard let ast = try? MathExpressionEvaluator.compileEquation(entry.expression, allowFreeParameters: true) else {
+            guard let compiled = try? MathExpressionEvaluator.compileGraphEquation(entry.expression, allowFreeParameters: true) else {
                 continue
             }
-            let segments = MarchingSquares.extractSegments(
-                ast: ast,
-                xRange: xRange,
-                yRange: yRange,
-                parameters: parameters
-            )
-            ctx.setStrokeColor(curveCGColor(for: entry.colorIndex, isDark: isDark))
-            ctx.beginPath()
-            for seg in segments {
-                let p1 = toCanvas(seg.x1, seg.y1)
-                let p2 = toCanvas(seg.x2, seg.y2)
-                ctx.move(to: p1)
-                ctx.addLine(to: p2)
+            let baseCGColor = curveCGColor(for: entry.colorIndex, isDark: isDark)
+
+            if compiled.isInequality {
+                let fillCGColor = baseCGColor.copy(alpha: 0.18) ?? baseCGColor
+                ctx.setFillColor(fillCGColor)
+                let rects = MarchingSquares.extractShadedRects(
+                    compiled: compiled,
+                    xRange: xRange,
+                    yRange: yRange,
+                    parameters: parameters
+                )
+                for r in rects {
+                    let pMin = toCanvas(r.xMin, r.yMin)
+                    let pMax = toCanvas(r.xMax, r.yMax)
+                    let cgRect = CGRect(
+                        x: min(pMin.x, pMax.x),
+                        y: min(pMin.y, pMax.y),
+                        width: abs(pMax.x - pMin.x),
+                        height: abs(pMax.y - pMin.y)
+                    )
+                    ctx.fill(cgRect)
+                }
             }
-            ctx.strokePath()
+
+            ctx.setStrokeColor(baseCGColor)
+            if compiled.hasStrictBoundary {
+                ctx.setLineDash(phase: 0, lengths: [5, 4])
+                ctx.setLineWidth(1.75)
+            } else {
+                ctx.setLineDash(phase: 0, lengths: [])
+                ctx.setLineWidth(2.0)
+            }
+
+            for boundaryAST in compiled.boundaries {
+                let segments = MarchingSquares.extractSegments(
+                    ast: boundaryAST,
+                    xRange: xRange,
+                    yRange: yRange,
+                    parameters: parameters,
+                    restrictions: compiled.restrictions
+                )
+                ctx.beginPath()
+                for seg in segments {
+                    let p1 = toCanvas(seg.x1, seg.y1)
+                    let p2 = toCanvas(seg.x2, seg.y2)
+                    ctx.move(to: p1)
+                    ctx.addLine(to: p2)
+                }
+                ctx.strokePath()
+            }
+            ctx.setLineDash(phase: 0, lengths: [])
         }
 
         // Key point markers
@@ -242,14 +394,7 @@ public enum GraphSnapshotRenderer {
         }
 
         guard let cgImage = ctx.makeImage() else { return nil }
-        let rep = NSBitmapImageRep(cgImage: cgImage)
-        guard let pngData = rep.representation(using: .png, properties: [:]) else {
-            return nil
-        }
-
-        let base64 = pngData.base64EncodedString()
-        let dataURI = "data:image/png;base64,\(base64)"
-        return SnapshotPayload(pngData: pngData, dataURI: dataURI)
+        return NSBitmapImageRep(cgImage: cgImage)
     }
 
     private static func niceGridStep(span: Double) -> Double {
@@ -280,123 +425,5 @@ public enum GraphSnapshotRenderer {
                 CGColor(red: 92 / 255, green: 110 / 255, blue: 128 / 255, alpha: 1.0)
             ]
         return palette[abs(index) % palette.count]
-    }
-}
-
-/// Builds pre-filled flashcard Markdown + LaTeX + PNG diagram payloads from 2D Grapher state.
-public enum GraphCardDraftBuilder {
-    public static func build(
-        equations: [EquationEntry],
-        parameters: [GraphParameter],
-        xRange: ClosedRange<Double>,
-        yRange: ClosedRange<Double>,
-        keyPoints: [GraphKeyPoint],
-        isDark: Bool = false
-    ) -> GraphCardDraft? {
-        let visibleEquations = equations.filter {
-            $0.isVisible && !$0.expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        guard !visibleEquations.isEmpty else { return nil }
-
-        let paramMap = Dictionary(uniqueKeysWithValues: parameters.map { ($0.name, $0.value) })
-        guard let snapshot = GraphSnapshotRenderer.renderPNG(
-            equations: visibleEquations,
-            parameters: paramMap,
-            xRange: xRange,
-            yRange: yRange,
-            keyPoints: keyPoints,
-            isDark: isDark
-        ) else {
-            return nil
-        }
-
-        let equationLines = visibleEquations.map { entry in
-            let expr = entry.expression.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let explicit = MathExpressionEvaluator.parseExplicitFunction(expr) {
-                return "- $y = \(explicit.toLaTeX())$"
-            }
-            let parts = expr.components(separatedBy: "=")
-            if parts.count == 2,
-               let lhs = try? MathExpressionEvaluator.parseExpression(
-                   parts[0],
-                   allowedVariables: MathExpressionEvaluator.defaultGraphAllowedVariables
-               ),
-               let rhs = try? MathExpressionEvaluator.parseExpression(
-                   parts[1],
-                   allowedVariables: MathExpressionEvaluator.defaultGraphAllowedVariables
-               ) {
-                return "- $\(lhs.toLaTeX()) = \(rhs.toLaTeX())$"
-            }
-            return "- `\(expr)`"
-        }
-
-        var frontParts: [String] = ["Analyze the graph and key intercepts for:"]
-        frontParts.append(equationLines.joined(separator: "\n"))
-        if !parameters.isEmpty {
-            let paramText = parameters
-                .map { "$\($0.name) = \(GraphFeatureSolver.formatCoordinate($0.value))$" }
-                .joined(separator: ", ")
-            frontParts.append("Parameters: \(paramText)")
-        }
-        let front = frontParts.joined(separator: "\n\n")
-
-        var backParts: [String] = ["![2D Graph](\(snapshot.dataURI))"]
-        let summaryLines = formatKeyPointSummary(keyPoints, limitPerKind: 4)
-        if !summaryLines.isEmpty {
-            backParts.append(summaryLines.joined(separator: "\n"))
-        }
-        let back = backParts.joined(separator: "\n\n")
-
-        var noteLines: [String] = [
-            "Viewport: $x \\in [\(GraphFeatureSolver.formatCoordinate(xRange.lowerBound)), \(GraphFeatureSolver.formatCoordinate(xRange.upperBound))]$, $y \\in [\(GraphFeatureSolver.formatCoordinate(yRange.lowerBound)), \(GraphFeatureSolver.formatCoordinate(yRange.upperBound))]$"
-        ]
-        if !parameters.isEmpty {
-            let paramSummary = parameters
-                .map { "`\($0.name) = \(GraphFeatureSolver.formatCoordinate($0.value))`" }
-                .joined(separator: ", ")
-            noteLines.append("Parameters: \(paramSummary)")
-        }
-        let fullPoints = formatKeyPointSummary(keyPoints, limitPerKind: 12)
-        if !fullPoints.isEmpty {
-            noteLines.append(contentsOf: fullPoints)
-        }
-        let explanation = noteLines.joined(separator: "\n\n")
-
-        return GraphCardDraft(
-            front: front,
-            back: back,
-            explanation: explanation,
-            tags: ["grapher"],
-            cardType: .example,
-            imageDataURI: snapshot.dataURI,
-            pngByteCount: snapshot.pngData.count
-        )
-    }
-
-    private static func formatKeyPointSummary(
-        _ keyPoints: [GraphKeyPoint],
-        limitPerKind: Int
-    ) -> [String] {
-        var lines: [String] = []
-
-        let xInts = keyPoints.filter { $0.kind == .xIntercept }.prefix(limitPerKind)
-        if !xInts.isEmpty {
-            let coords = xInts.map { GraphFeatureSolver.formatPoint(x: $0.x, y: $0.y) }.joined(separator: ", ")
-            lines.append("- x-intercepts: \(coords)")
-        }
-
-        let yInts = keyPoints.filter { $0.kind == .yIntercept }.prefix(limitPerKind)
-        if !yInts.isEmpty {
-            let coords = yInts.map { GraphFeatureSolver.formatPoint(x: $0.x, y: $0.y) }.joined(separator: ", ")
-            lines.append("- y-intercepts: \(coords)")
-        }
-
-        let inters = keyPoints.filter { $0.kind == .intersection }.prefix(limitPerKind)
-        if !inters.isEmpty {
-            let coords = inters.map { GraphFeatureSolver.formatPoint(x: $0.x, y: $0.y) }.joined(separator: ", ")
-            lines.append("- Intersections: \(coords)")
-        }
-
-        return lines
     }
 }

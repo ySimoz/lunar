@@ -114,6 +114,30 @@ public final class GrapherViewModel {
     public var isConsoleExpanded: Bool = true
     public var nextCASIndex: Int = 1
 
+    private struct KeyPointCacheKey: Equatable {
+        let expressions: [(id: UUID, expression: String)]
+        let parameters: [GraphParameter]
+        let centerX: Double
+        let centerY: Double
+        let halfWidth: Double
+        let aspect: Double
+
+        static func == (lhs: KeyPointCacheKey, rhs: KeyPointCacheKey) -> Bool {
+            lhs.centerX == rhs.centerX
+                && lhs.centerY == rhs.centerY
+                && lhs.halfWidth == rhs.halfWidth
+                && lhs.aspect == rhs.aspect
+                && lhs.parameters == rhs.parameters
+                && lhs.expressions.count == rhs.expressions.count
+                && zip(lhs.expressions, rhs.expressions).allSatisfy {
+                    $0.id == $1.id && $0.expression == $1.expression
+                }
+        }
+    }
+
+    @ObservationIgnored
+    private var keyPointsCache: (key: KeyPointCacheKey, points: [GraphKeyPoint])?
+
     public init() {}
 
     public var parameterEnvironment: [Character: Double] {
@@ -151,11 +175,15 @@ public final class GrapherViewModel {
         guard let idx = parameters.firstIndex(where: { $0.name == name }) else { return }
         let safeMin = min.isFinite ? min : -10.0
         let safeMax = (max.isFinite && max > safeMin) ? max : safeMin + 1.0
-        let safeStep = (step.isFinite && step > 0) ? step : 0.1
+        let safeStep = (step.isFinite && step > 0) ? Swift.min(step, safeMax - safeMin) : 0.1
         parameters[idx].min = safeMin
         parameters[idx].max = safeMax
         parameters[idx].step = safeStep
-        parameters[idx].value = Swift.min(safeMax, Swift.max(safeMin, parameters[idx].value))
+        let current = parameters[idx].value
+        let stepsFromMin = ((current - safeMin) / safeStep).rounded()
+        let snapped = safeMin + stepsFromMin * safeStep
+        let roundedClean = (snapped * 1_000_000).rounded() / 1_000_000
+        parameters[idx].value = Swift.min(safeMax, Swift.max(safeMin, roundedClean))
     }
 
     public func resetParameter(name: Character) {
@@ -172,16 +200,30 @@ public final class GrapherViewModel {
     }
 
     public func visibleKeyPoints(aspect: Double = 0.7) -> [GraphKeyPoint] {
-        let (xRange, yRange) = viewportRanges(aspect: aspect)
+        let safeAspect = (aspect.isFinite && aspect > 0.05) ? aspect : 0.7
         let visible = equations
             .filter(\.isVisible)
             .map { (id: $0.id, expression: $0.expression) }
-        return GraphFeatureSolver.findKeyPoints(
+        let key = KeyPointCacheKey(
+            expressions: visible,
+            parameters: parameters,
+            centerX: centerX,
+            centerY: centerY,
+            halfWidth: halfWidth,
+            aspect: safeAspect
+        )
+        if let cached = keyPointsCache, cached.key == key {
+            return cached.points
+        }
+        let (xRange, yRange) = viewportRanges(aspect: safeAspect)
+        let points = GraphFeatureSolver.findKeyPoints(
             equations: visible,
             parameters: parameterEnvironment,
             xRange: xRange,
             yRange: yRange
         )
+        keyPointsCache = (key: key, points: points)
+        return points
     }
 
     public func nearestKeyPoint(

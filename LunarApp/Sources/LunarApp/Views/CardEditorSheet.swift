@@ -49,6 +49,8 @@ public struct CardEditorSheet: View {
     @FocusState private var focusedField: ActiveField?
     @State private var lastActiveField: ActiveField = .front
     @State private var showSymbolPopover = false
+    @State private var clipboardNotice: String?
+    @State private var clipboardNoticeTask: Task<Void, Never>?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -108,7 +110,7 @@ public struct CardEditorSheet: View {
         var sections: [String] = []
 
         if !trimmedFront.isEmpty {
-            sections.append("#### Prompt\n\(wrapRawLatexIfNeeded(trimmedFront))")
+            sections.append(wrapRawLatexIfNeeded(trimmedFront))
         }
 
         if !layers.isEmpty {
@@ -120,15 +122,15 @@ public struct CardEditorSheet: View {
                 let formattedBody = stepBody.isEmpty ? "_Empty step_" : wrapRawLatexIfNeeded(stepBody)
                 layerBlocks.append("**\(stepTitle)**\n\(formattedBody)")
             }
-            sections.append("#### Layers\n\(layerBlocks.joined(separator: "\n\n"))")
+            sections.append(layerBlocks.joined(separator: "\n\n"))
         }
 
         if !trimmedBack.isEmpty {
-            sections.append("#### Answer\n\(wrapRawLatexIfNeeded(trimmedBack))")
+            sections.append(wrapRawLatexIfNeeded(trimmedBack))
         }
 
         if !trimmedNotes.isEmpty {
-            sections.append("#### Notes\n\(wrapRawLatexIfNeeded(trimmedNotes))")
+            sections.append(wrapRawLatexIfNeeded(trimmedNotes))
         }
 
         return sections.joined(separator: "\n\n---\n\n")
@@ -147,13 +149,13 @@ public struct CardEditorSheet: View {
 
             HSplitView {
                 formPane
-                    .frame(minWidth: 390, idealWidth: 440)
+                    .frame(minWidth: 390, idealWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
 
                 previewPane
-                    .frame(minWidth: 350, idealWidth: 420)
+                    .frame(minWidth: 360, idealWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 880, minHeight: 600)
+        .frame(minWidth: 880, idealWidth: 980, maxWidth: .infinity, minHeight: 600, idealHeight: 680, maxHeight: .infinity)
         .onChange(of: focusedField) { _, newFocus in
             if let newFocus {
                 lastActiveField = newFocus
@@ -181,6 +183,25 @@ public struct CardEditorSheet: View {
                 .font(.system(size: 16, weight: .semibold))
 
             Spacer()
+
+            if let clipboardNotice {
+                Text(clipboardNotice)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Button {
+                pasteClipboardImageIntoActiveField()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "photo.on.rectangle")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Paste image")
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }
+            .buttonStyle(.bordered)
+            .help("Paste image from clipboard into \(lastActiveField.displayName)")
 
             Button {
                 showSymbolPopover.toggle()
@@ -327,13 +348,15 @@ public struct CardEditorSheet: View {
                     .foregroundStyle(.secondary)
                 CleanTextEditor(text: $front)
                     .padding(LunarTokens.space2)
-                    .frame(minHeight: 110, maxHeight: .infinity)
+                    .frame(minHeight: 100, maxHeight: .infinity)
                     .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: LunarTokens.controlRadius, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: LunarTokens.controlRadius, style: .continuous)
                             .strokeBorder(LunarTokens.hairlineBorder(), lineWidth: 1)
                     }
                     .focused($focusedField, equals: .front)
+
+                CardAttachmentStrip(markdown: $front)
             }
             .frame(maxHeight: .infinity)
 
@@ -343,13 +366,15 @@ public struct CardEditorSheet: View {
                     .foregroundStyle(.secondary)
                 CleanTextEditor(text: $back)
                     .padding(LunarTokens.space2)
-                    .frame(minHeight: 110, maxHeight: .infinity)
+                    .frame(minHeight: 100, maxHeight: .infinity)
                     .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: LunarTokens.controlRadius, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: LunarTokens.controlRadius, style: .continuous)
                             .strokeBorder(LunarTokens.hairlineBorder(), lineWidth: 1)
                     }
                     .focused($focusedField, equals: .back)
+
+                CardAttachmentStrip(markdown: $back)
             }
             .frame(maxHeight: .infinity)
         }
@@ -436,6 +461,8 @@ public struct CardEditorSheet: View {
                             .strokeBorder(LunarTokens.hairlineBorder(), lineWidth: 1)
                     }
                     .focused($focusedField, equals: .explanation)
+
+                CardAttachmentStrip(markdown: $explanation)
             }
             .frame(maxHeight: .infinity)
 
@@ -520,13 +547,37 @@ public struct CardEditorSheet: View {
         .background(Color.primary.opacity(0.015))
     }
 
-    private func insertMarkup(_ markup: String, into field: ActiveField) {
+    private func activeFieldMarkdown() -> String {
+        switch lastActiveField {
+        case .front: return front
+        case .back: return back
+        case .explanation: return explanation
+        case .layerContent(let id):
+            return layers.first(where: { $0.id == id })?.content ?? ""
+        }
+    }
+
+    private func pasteClipboardImageIntoActiveField() {
+        guard let attachment = CardAttachmentCodec.readPasteboardImage(
+            from: .general,
+            existingMarkdown: activeFieldMarkdown(),
+            ignoreIfPlainTextPresent: false
+        ) else {
+            showClipboardNotice("No image on clipboard")
+            return
+        }
+
+        insertMarkup(attachment.markdownTag, into: lastActiveField, separator: "\n\n")
+        showClipboardNotice("Attached \(attachment.label) to \(lastActiveField.displayName)")
+    }
+
+    private func insertMarkup(_ markup: String, into field: ActiveField, separator: String = " ") {
         func append(_ current: String) -> String {
             guard !current.isEmpty else { return markup }
             if current.hasSuffix(" ") || current.hasSuffix("\n") {
                 return current + markup
             }
-            return current + " " + markup
+            return current + separator + markup
         }
 
         switch field {
@@ -555,12 +606,24 @@ public struct CardEditorSheet: View {
         }
     }
 
+    private func showClipboardNotice(_ text: String) {
+        clipboardNotice = text
+        clipboardNoticeTask?.cancel()
+        clipboardNoticeTask = Task {
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            guard !Task.isCancelled else { return }
+            clipboardNotice = nil
+        }
+    }
+
     private func commit() {
         guard canSave else { return }
+        let finalFront = front.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalBack = back.trimmingCharacters(in: .whitespacesAndNewlines)
         var draft = existingCard ?? Flashcard(
             deckId: activeDeck.id,
-            front: front,
-            back: back
+            front: finalFront,
+            back: finalBack
         )
         if existingCard == nil {
             draft.deckId = activeDeck.id
@@ -568,8 +631,8 @@ public struct CardEditorSheet: View {
         draft.topic = topic.trimmingCharacters(in: .whitespacesAndNewlines)
         draft.cardType = cardType
         draft.difficulty = difficulty
-        draft.front = front.trimmingCharacters(in: .whitespacesAndNewlines)
-        draft.back = back.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.front = finalFront
+        draft.back = finalBack
         draft.layers = layers.map {
             CardLayer(
                 id: $0.id.isEmpty ? "layer-\(UUID().uuidString.prefix(8))" : $0.id,
@@ -584,10 +647,78 @@ public struct CardEditorSheet: View {
     }
 }
 
-/// Transparent monospace `NSTextView` with overlay autohiding scrollers and smart-quote
-/// substitution disabled so LaTeX primes/quotes remain untouched and no permanent bar renders.
+private struct CardAttachmentStrip: View {
+    @Binding var markdown: String
+
+    var body: some View {
+        let attachments = CardAttachmentCodec.extract(from: markdown).attachments
+        if !attachments.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: LunarTokens.space2) {
+                    ForEach(Array(attachments.enumerated()), id: \.offset) { index, attachment in
+                        HStack(spacing: LunarTokens.space2) {
+                            if let nsImage = CardAttachmentCodec.thumbnailImage(for: attachment) {
+                                Image(nsImage: nsImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 44, height: 28)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .strokeBorder(LunarTokens.hairlineBorder(), lineWidth: 1)
+                                    }
+                            } else {
+                                Image(systemName: "photo")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 28, height: 28)
+                            }
+
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(attachment.label)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                Text(attachment.formattedSize)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Button {
+                                markdown = CardAttachmentCodec.removingAttachment(at: index, from: markdown)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(4)
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Remove image")
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(
+                            Color.primary.opacity(0.04),
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(LunarTokens.hairlineBorder(), lineWidth: 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Transparent monospace `NSTextView` supporting inline atomic image pills (`LunarImageAttachment`)
+/// so images interleave cleanly between paragraphs/LaTeX without exposing raw base64 text.
 private struct CleanTextEditor: NSViewRepresentable {
     @Binding var text: String
+
+    private static let defaultFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
@@ -602,24 +733,30 @@ private struct CleanTextEditor: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
 
-        let textView = NSTextView()
+        let textView = LunarPasteboardTextView()
         textView.delegate = context.coordinator
         textView.drawsBackground = false
-        textView.isRichText = false
+        textView.isRichText = true
         textView.importsGraphics = false
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
-        textView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.font = Self.defaultFont
         textView.textColor = .labelColor
         textView.insertionPointColor = .labelColor
+        textView.typingAttributes = [
+            .font: Self.defaultFont,
+            .foregroundColor: NSColor.labelColor
+        ]
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.textContainerInset = NSSize(width: 2, height: 4)
-        textView.string = text
+        textView.textStorage?.setAttributedString(
+            CardAttachmentCodec.attributedString(from: text, font: Self.defaultFont, textColor: .labelColor)
+        )
 
         scrollView.documentView = textView
         return scrollView
@@ -627,11 +764,27 @@ private struct CleanTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.text = $text
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-        if textView.string != text {
+        guard let textView = scrollView.documentView as? LunarPasteboardTextView else { return }
+        let currentMarkdown = CardAttachmentCodec.markdown(from: textView.attributedString())
+        if currentMarkdown != text {
             let selected = textView.selectedRanges
-            textView.string = text
-            textView.selectedRanges = selected
+            let updated = CardAttachmentCodec.attributedString(
+                from: text,
+                font: Self.defaultFont,
+                textColor: .labelColor
+            )
+            textView.textStorage?.setAttributedString(updated)
+            let clamped = selected.map { val -> NSValue in
+                let r = val.rangeValue
+                let loc = min(r.location, updated.length)
+                let len = min(r.length, max(0, updated.length - loc))
+                return NSValue(range: NSRange(location: loc, length: len))
+            }
+            textView.selectedRanges = clamped
+            textView.typingAttributes = [
+                .font: Self.defaultFont,
+                .foregroundColor: NSColor.labelColor
+            ]
         }
     }
 
@@ -644,9 +797,45 @@ private struct CleanTextEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            if text.wrappedValue != textView.string {
-                text.wrappedValue = textView.string
+            let serialized = CardAttachmentCodec.markdown(from: textView.attributedString())
+            if text.wrappedValue != serialized {
+                text.wrappedValue = serialized
             }
+        }
+    }
+}
+
+private final class LunarPasteboardTextView: NSTextView {
+    override func paste(_ sender: Any?) {
+        let currentMarkdown = CardAttachmentCodec.markdown(from: attributedString())
+        if let attachment = CardAttachmentCodec.readPasteboardImage(
+            from: .general,
+            existingMarkdown: currentMarkdown,
+            ignoreIfPlainTextPresent: true
+        ) {
+            insertInlineAttachment(attachment)
+            return
+        }
+        // Always paste external text unstyled so HTML/web formatting never leaks into LaTeX editors.
+        pasteAsPlainText(sender)
+    }
+
+    private func insertInlineAttachment(_ attachment: CardAttachment) {
+        let range = selectedRange()
+        let pill = LunarImageAttachment(cardAttachment: attachment)
+        let attr = NSMutableAttributedString(attachment: pill)
+        let baseFont = font ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: baseFont,
+            .foregroundColor: NSColor.labelColor
+        ]
+        attr.addAttributes(attrs, range: NSRange(location: 0, length: attr.length))
+
+        if shouldChangeText(in: range, replacementString: "\u{FFFC}") {
+            textStorage?.replaceCharacters(in: range, with: attr)
+            setSelectedRange(NSRange(location: range.location + attr.length, length: 0))
+            typingAttributes = attrs
+            didChangeText()
         }
     }
 }

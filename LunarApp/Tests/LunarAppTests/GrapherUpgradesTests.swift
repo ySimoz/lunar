@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import LunarApp
@@ -132,15 +133,11 @@ struct GrapherUpgradesTests {
         #expect(flatPoints.filter { $0.kind == .xIntercept }.isEmpty)
     }
 
-    @Test("Graph snapshot renderer and card draft builder generate compact PNG data URI and valid Markdown")
-    func graphSnapshotAndCardDraft() {
+    @Test("GraphSnapshotRenderer generates compact PNG data URI, equation label, and valid Markdown")
+    func graphSnapshotAndLabel() {
         let equations = [
             EquationEntry(expression: "y = a*sin(b*x)", isVisible: true, colorIndex: 0),
             EquationEntry(expression: "y = 0.5*x", isVisible: true, colorIndex: 1)
-        ]
-        let params = [
-            GraphParameter(name: "a", value: 2.0),
-            GraphParameter(name: "b", value: 1.0)
         ]
         let paramMap: [Character: Double] = ["a": 2.0, "b": 1.0]
         let xRange = -6.0...6.0
@@ -153,40 +150,320 @@ struct GrapherUpgradesTests {
             yRange: yRange
         )
 
-        guard let draft = GraphCardDraftBuilder.build(
+        guard let snapshot = GraphSnapshotRenderer.renderPNG(
             equations: equations,
-            parameters: params,
+            parameters: paramMap,
             xRange: xRange,
             yRange: yRange,
             keyPoints: keyPoints,
             isDark: false
         ) else {
-            Issue.record("Expected GraphCardDraftBuilder to produce a non-nil draft")
+            Issue.record("Expected GraphSnapshotRenderer to produce a non-nil PNG snapshot")
             return
         }
 
         // Verify valid PNG signature and compact payload size (< 100 KB, far below 1 MiB CoreClient limit)
-        #expect(draft.imageDataURI.hasPrefix("data:image/png;base64,"))
-        #expect(draft.pngByteCount > 500)
-        #expect(draft.pngByteCount < 100_000)
-        #expect(draft.imageDataURI.utf8.count < 140_000)
+        #expect(snapshot.dataURI.hasPrefix("data:image/png;base64,"))
+        #expect(snapshot.pngData.count > 500)
+        #expect(snapshot.pngData.count < 100_000)
+        #expect(snapshot.dataURI.utf8.count < 140_000)
+        #expect(snapshot.pngData.prefix(4) == Data([0x89, 0x50, 0x4E, 0x47]))
 
-        let base64Part = String(draft.imageDataURI.dropFirst("data:image/png;base64,".count))
-        let decodedData = Data(base64Encoded: base64Part)
-        #expect(decodedData != nil)
-        #expect(decodedData?.prefix(4) == Data([0x89, 0x50, 0x4E, 0x47]))
+        let expectedLabel = GraphSnapshotRenderer.defaultLabel(for: equations)
+        #expect(expectedLabel.hasPrefix("Graph:"))
 
-        #expect(draft.front.contains("a = 2"))
-        #expect(draft.back.contains("![2D Graph](data:image/png;base64,"))
-        #expect(draft.explanation.contains("x-intercepts") || draft.explanation.contains("Intersections"))
-
-        // Verify MathParser renders the data-URI image end-to-end and MathPlainText summarizes it cleanly
-        let parsed = MathParser.parse(draft.back)
+        let markdown = "![\(expectedLabel)](\(snapshot.dataURI))"
+        let parsed = MathParser.parse(markdown)
         #expect(parsed.htmlFragment.contains("<img class=\"lunar-markdown-image\" src=\"data:image/png;base64,"))
-        #expect(parsed.htmlFragment.contains("alt=\"2D Graph\""))
+        #expect(parsed.htmlFragment.contains("alt=\"\(expectedLabel)\""))
 
-        let plain = MathPlainText.format(draft.back)
-        #expect(plain.contains("[2D Graph]"))
+        let plain = MathPlainText.format(markdown)
+        #expect(plain.contains("[\(expectedLabel)]"))
         #expect(!plain.contains("data:image/png;base64"))
+    }
+
+    @Test("CardAttachmentCodec extracts base64 images cleanly from text/LaTeX and supports removal & recompose")
+    func attachmentCodecExtractComposeAndRemove() {
+        let sampleURI1 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        let sampleURI2 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAQAAABFaP0WAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        let raw = "Intercepts at $(0, 0)$\n\n![2D Graph](\(sampleURI1))\n\nExtra note below.\n\n![Second Plot](\(sampleURI2))"
+
+        var (cleanText, attachments) = CardAttachmentCodec.extract(from: raw)
+        #expect(!cleanText.contains("data:image/"))
+        #expect(cleanText.contains("Intercepts at $(0, 0)$"))
+        #expect(cleanText.contains("Extra note below."))
+        #expect(attachments.count == 2)
+        #expect(attachments[0].label == "2D Graph")
+        #expect(attachments[1].label == "Second Plot")
+
+        // Removing the first image leaves clean text + second image intact
+        attachments.removeFirst()
+        let recomposed = CardAttachmentCodec.compose(text: cleanText, attachments: attachments)
+        #expect(recomposed.contains("Intercepts at $(0, 0)$"))
+        #expect(recomposed.contains("Extra note below."))
+        #expect(!recomposed.contains(sampleURI1))
+        #expect(recomposed.contains("![Second Plot](\(sampleURI2))"))
+    }
+
+    @Test("CardAttachmentCodec encodes clipboard NSImage into compact data URI and decodes thumbnail")
+    func attachmentCodecEncodesImage() {
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 120,
+            pixelsHigh: 80,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )!
+        let image = NSImage(size: NSSize(width: 120, height: 80))
+        image.addRepresentation(rep)
+
+        let attachment = CardAttachmentCodec.encodeImage(image, label: "Snapshot")
+        #expect(attachment != nil)
+        #expect(attachment?.label == "Snapshot")
+        #expect(attachment?.dataURI.hasPrefix("data:image/png;base64,") == true)
+        #expect((attachment?.byteCount ?? 0) > 0)
+        #expect(attachment.flatMap { CardAttachmentCodec.thumbnailImage(for: $0) } != nil)
+    }
+
+    @Test("GrapherViewModel caches key points across reads and refreshes when parameter changes")
+    @MainActor
+    func grapherViewModelKeyPointCache() {
+        let vm = GrapherViewModel()
+        vm.addPlottedEquation("x - a")
+
+        let first = vm.visibleKeyPoints(aspect: 0.7)
+        let second = vm.visibleKeyPoints(aspect: 0.7)
+        #expect(first == second)
+        #expect(first.contains { $0.kind == .xIntercept && abs($0.x - 1.0) < 1e-4 })
+
+        vm.setParameterValue(name: "a", value: 3.5)
+        let third = vm.visibleKeyPoints(aspect: 0.7)
+        #expect(third != first)
+        #expect(third.contains { $0.kind == .xIntercept && abs($0.x - 3.5) < 1e-4 })
+    }
+
+    @Test("CardAttachmentCodec preserves interleaved order between multiple images, text, and LaTeX")
+    func attachmentCodecInterleavedAttributedRoundTrip() {
+        let img1 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        let img2 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAQAAABFaP0WAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        let interleaved = "Before image 1:\n\n![First](\(img1))\n\nMiddle math $x^2 + 1$\n\n![Second](\(img2))\n\nConclusion."
+
+        let attr = CardAttachmentCodec.attributedString(from: interleaved)
+        let roundTripped = CardAttachmentCodec.markdown(from: attr)
+        #expect(roundTripped == interleaved)
+
+        // Ensure raw-latex wrapper does not swallow Markdown containing interleaved images
+        #expect(MathParser.shouldAttemptRawLatex("\\frac{1}{2}\n\n![First](\(img1))").candidate == false)
+
+        // Removing the first image preserves text around it and keeps the second image intact
+        let afterRemove = CardAttachmentCodec.removingAttachment(at: 0, from: interleaved)
+        #expect(!afterRemove.contains(img1))
+        #expect(afterRemove.contains("Before image 1:"))
+        #expect(afterRemove.contains("Middle math $x^2 + 1$"))
+        #expect(afterRemove.contains("![Second](\(img2))"))
+        #expect(afterRemove.contains("Conclusion."))
+    }
+
+    @Test("CardAttachmentCodec assigns sequential Image N labels and unique graph labels")
+    func attachmentCodecSequentialLabels() {
+        let img1 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        #expect(CardAttachmentCodec.nextImageLabel(preferredLabel: nil, in: "") == "Image 1")
+        let withFirst = "![Image 1](\(img1))"
+        #expect(CardAttachmentCodec.nextImageLabel(preferredLabel: nil, in: withFirst) == "Image 2")
+
+        let graphLabel = "Graph: sin(x)"
+        #expect(CardAttachmentCodec.nextImageLabel(preferredLabel: graphLabel, in: "") == "Graph: sin(x)")
+        let withGraph = "![Graph: sin(x)](\(img1))"
+        #expect(CardAttachmentCodec.nextImageLabel(preferredLabel: graphLabel, in: withGraph) == "Graph: sin(x) (2)")
+    }
+
+    @Test("GraphSnapshotRenderer crops world bounds accurately and exports JPEG")
+    func graphSnapshotCropAndJPEGExport() {
+        let canvas = CGSize(width: 800, height: 400)
+        // Right half horizontally [0, 10], top half vertically [0, 5] for x in [-10, 10], y in [-5, 5]
+        let cropRect = CGRect(x: 400, y: 0, width: 400, height: 200)
+        let target = GraphSnapshotRenderer.resolveExportViewport(
+            cropRect: cropRect,
+            canvasSize: canvas,
+            xRange: -10.0...10.0,
+            yRange: -5.0...5.0,
+            longestEdge: 800
+        )
+
+        #expect(target.isCropped)
+        #expect(abs(target.xRange.lowerBound - 0.0) < 1e-6)
+        #expect(abs(target.xRange.upperBound - 10.0) < 1e-6)
+        #expect(abs(target.yRange.lowerBound - 0.0) < 1e-6)
+        #expect(abs(target.yRange.upperBound - 5.0) < 1e-6)
+        #expect(target.width == 800)
+        #expect(target.height == 400)
+
+        let equations = [EquationEntry(expression: "x^2")]
+        let jpegData = GraphSnapshotRenderer.renderImageData(
+            equations: equations,
+            parameters: [:],
+            xRange: target.xRange,
+            yRange: target.yRange,
+            keyPoints: [],
+            format: .jpeg,
+            width: target.width,
+            height: target.height
+        )
+        #expect(jpegData != nil)
+        #expect(jpegData?.prefix(2) == Data([0xFF, 0xD8]))
+    }
+
+    @Test("Equation domain and range restrictions compile, clip contours, and filter key points")
+    func equationRestrictionsAndSolverFiltering() throws {
+        // Semicircle x^2 + y^2 = 4 {y >= 0}
+        let semi = try MathExpressionEvaluator.compileGraphEquation("x^2 + y^2 = 4 {y >= 0}")
+        #expect(semi.restrictions.count == 1)
+        #expect(semi.satisfiesRestrictions(x: 0, y: 2, parameters: [:]) == true)
+        #expect(semi.satisfiesRestrictions(x: 0, y: -2, parameters: [:]) == false)
+
+        let semiSegments = MarchingSquares.extractSegments(
+            ast: semi.implicitAST,
+            xRange: -4...4,
+            yRange: -4...4,
+            parameters: [:],
+            restrictions: semi.restrictions
+        )
+        #expect(!semiSegments.isEmpty)
+        #expect(semiSegments.allSatisfy { $0.y1 >= -1e-4 && $0.y2 >= -1e-4 })
+
+        // Chained interval + parameter inside restriction: y = x - 1 {-1 <= x <= a, y < 2}
+        let chained = try MathExpressionEvaluator.compileGraphEquation("y = x^2 - 1 {0 <= x <= a}")
+        #expect(chained.freeParameters == ["a"])
+        #expect(chained.satisfiesRestrictions(x: 0.5, y: 0, parameters: ["a": 2]) == true)
+        #expect(chained.satisfiesRestrictions(x: -0.5, y: 0, parameters: ["a": 2]) == false)
+
+        // Root finding skips x = -1 root of x^2 - 1 because of {x >= 0}
+        let eqID = UUID()
+        let keyPoints = GraphFeatureSolver.findKeyPoints(
+            equations: [(id: eqID, expression: "y = x^2 - 1 {x >= 0}")],
+            parameters: [:],
+            xRange: -4...4,
+            yRange: -4...4
+        )
+        let xInts = keyPoints.filter { $0.kind == .xIntercept }
+        #expect(xInts.count == 1)
+        #expect(abs((xInts.first?.x ?? 0) - 1.0) < 1e-4)
+
+        // Invalid syntax raises MathParseError.invalidRestriction
+        #expect(throws: MathParseError.self) {
+            _ = try MathExpressionEvaluator.compileGraphEquation("y = x^2 {x > 0")
+        }
+    }
+
+    @Test("Parameter bounds update snaps values cleanly to natural and step-2 increments")
+    @MainActor
+    func parameterPresetSnapping() {
+        let vm = GrapherViewModel()
+        vm.addPlottedEquation("a*x")
+        vm.setParameterValue(name: "a", value: 1.4)
+
+        // Snap to step 1 integers/naturals
+        vm.updateParameterBounds(name: "a", min: 0, max: 20, step: 1)
+        #expect(vm.parameters[0].min == 0)
+        #expect(vm.parameters[0].max == 20)
+        #expect(vm.parameters[0].step == 1)
+        #expect(vm.parameters[0].value == 1.0)
+
+        // Snap to step 2 (0, 2, 4...)
+        vm.setParameterValue(name: "a", value: 3.3)
+        vm.updateParameterBounds(name: "a", min: 0, max: 20, step: 2)
+        #expect(vm.parameters[0].step == 2)
+        #expect(vm.parameters[0].value == 4.0)
+    }
+
+    @Test("Top-level symbolic and word inequalities compile, shade regions, and distinguish strict boundaries")
+    func topLevelInequalitiesAndWordAliases() throws {
+        // Strict half-plane using phrase alias
+        let strictLine = try MathExpressionEvaluator.compileGraphEquation("y less than x + 2")
+        #expect(strictLine.isInequality)
+        #expect(strictLine.hasStrictBoundary)
+        #expect(strictLine.isShaded(x: 0, y: 1, parameters: [:]) == true)
+        #expect(strictLine.isShaded(x: 0, y: 3, parameters: [:]) == false)
+
+        // Inclusive disk using `leq` keyword
+        let disk = try MathExpressionEvaluator.compileGraphEquation("x^2 + y^2 leq 9")
+        #expect(disk.isInequality)
+        #expect(!disk.hasStrictBoundary)
+        #expect(disk.isShaded(x: 0, y: 0, parameters: [:]) == true)
+        #expect(disk.isShaded(x: 4, y: 0, parameters: [:]) == false)
+
+        let rects = MarchingSquares.extractShadedRects(
+            compiled: disk,
+            xRange: -5...5,
+            yRange: -5...5,
+            parameters: [:]
+        )
+        #expect(!rects.isEmpty)
+        #expect(rects.allSatisfy { $0.xMin >= -3.5 && $0.xMax <= 3.5 })
+
+        // Chained interval inequality (-2 <= x < 3) emits both vertical boundaries
+        let strip = try MathExpressionEvaluator.compileGraphEquation("-2 <= x < 3")
+        #expect(strip.boundaries.count == 2)
+        #expect(strip.hasStrictBoundary)
+        #expect(strip.isShaded(x: 0, y: 10, parameters: [:]) == true)
+        #expect(strip.isShaded(x: -3, y: 0, parameters: [:]) == false)
+
+        // Snapshot renders inequality PNG without error
+        let png = GraphSnapshotRenderer.renderPNG(
+            equations: [EquationEntry(expression: "y <= x^2")],
+            parameters: [:],
+            xRange: -4...4,
+            yRange: -4...4,
+            keyPoints: []
+        )
+        #expect(png != nil)
+    }
+
+    @Test("Expanded trig, hyperbolic, log2, rounding, multi-arg max/min/mod, and |x| bars evaluate cleanly")
+    func expandedFunctionsAndAbsoluteBars() throws {
+        let absNode = try MathExpressionEvaluator.parseExpression("2|x - 1| + |y|", allowedVariables: ["x", "y"])
+        #expect(abs(absNode.evaluate(x: -2, y: -3) - 9.0) < 1e-9)
+
+        let nestedAbs = try MathExpressionEvaluator.parseExpression("|1 - |x||", allowedVariables: ["x"])
+        #expect(abs(nestedAbs.evaluate(x: -4, y: 0) - 3.0) < 1e-9)
+
+        let hyper = try MathExpressionEvaluator.parseExpression("sinh(0) + cosh(0) + tanh(0)", allowedVariables: ["x"])
+        #expect(abs(hyper.evaluate(x: 0, y: 0) - 1.0) < 1e-9)
+
+        let logNode = try MathExpressionEvaluator.parseExpression("log2(8) + csc(pi/2) + sec(0) + floor(2.9) + ceil(1.1)", allowedVariables: ["x"])
+        #expect(abs(logNode.evaluate(x: 0, y: 0) - (3.0 + 1.0 + 1.0 + 2.0 + 2.0)) < 1e-9)
+
+        let multi = try MathExpressionEvaluator.parseExpression("max(x, x^2, 2) - min(x, -1) + mod(7, 3)", allowedVariables: ["x"])
+        // At x = -2: max(-2, 4, 2) = 4; min(-2, -1) = -2; mod(7, 3) = 1 => 4 - (-2) + 1 = 7
+        #expect(abs(multi.evaluate(x: -2, y: 0) - 7.0) < 1e-9)
+
+        // Arbitrary base log(arg, base), base-10 log(100), and ln(e)
+        let arbitraryLog = try MathExpressionEvaluator.parseExpression("log(8, 2) + log(100) + ln(e)", allowedVariables: ["x"])
+        #expect(abs(arbitraryLog.evaluate(x: 0, y: 0) - 6.0) < 1e-9)
+
+        let paramLog = try MathExpressionEvaluator.compileGraphEquation("y = log(x, a)")
+        #expect(paramLog.freeParameters == ["a"])
+        #expect(abs((paramLog.explicitAST?.evaluate(x: 27, y: 0, parameters: ["a": 3]) ?? 0) - 3.0) < 1e-9)
+    }
+
+    @Test("Golden ratio phi/φ constant and subscript log_b(x) evaluate without spurious parameters")
+    func goldenRatioAndSubscriptLog() throws {
+        let phi = (1.0 + Darwin.sqrt(5.0)) * 0.5
+        let compiledPhi = try MathExpressionEvaluator.compileGraphEquation("y = phi * x + 2φ")
+        #expect(compiledPhi.freeParameters.isEmpty)
+        #expect(abs((compiledPhi.explicitAST?.evaluate(x: 1, y: 0) ?? 0) - (3.0 * phi)) < 1e-9)
+
+        let subLogNum = try MathExpressionEvaluator.parseExpression("log_2(8) + log_(2+2)(16) + 2log_3(9)", allowedVariables: ["x"])
+        // 3 + 2 + 2*2 = 9
+        #expect(abs(subLogNum.evaluate(x: 0, y: 0) - 9.0) < 1e-9)
+
+        let subLogParam = try MathExpressionEvaluator.compileGraphEquation("y = log_a(x)")
+        #expect(subLogParam.freeParameters == ["a"])
+        #expect(abs((subLogParam.explicitAST?.evaluate(x: 81, y: 0, parameters: ["a": 3]) ?? 0) - 4.0) < 1e-9)
     }
 }

@@ -75,7 +75,8 @@ public enum MathParser {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               !trimmed.contains("$"),
-              !trimmed.contains("\\[") else {
+              !trimmed.contains("\\["),
+              !trimmed.contains("data:image/") else {
             return (false, false)
         }
 
@@ -578,6 +579,8 @@ public enum MathParser {
         .lunar-markdown-image {
           display: block;
           max-width: 100%;
+          max-height: 300px;
+          width: auto;
           height: auto;
           border-radius: 8px;
           border: 1px solid var(--lunar-border);
@@ -596,10 +599,13 @@ public enum MathParser {
         <script>
         (function() {
           const root = document.getElementById('lunar-root');
+          let lastReportedHeight = 0;
 
           function reportHeight() {
             if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.lunarHeight) {
               const h = Math.ceil(Math.max(root.getBoundingClientRect().height, root.scrollHeight));
+              if (Math.abs(h - lastReportedHeight) < 2) return;
+              lastReportedHeight = h;
               window.webkit.messageHandlers.lunarHeight.postMessage(h);
             }
           }

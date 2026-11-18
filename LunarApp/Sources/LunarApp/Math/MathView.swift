@@ -103,10 +103,11 @@ public struct MathView: View {
             fontSize: fontSize,
             compact: compact,
             onHeightChange: { newHeight in
-                guard newHeight > 0, abs(newHeight - measuredHeight) > 0.5 else { return }
+                guard newHeight > 0, abs(newHeight - measuredHeight) > 2.0 else { return }
                 measuredHeight = newHeight
             }
         )
+        .frame(minWidth: 0, maxWidth: .infinity)
         .frame(height: effectiveHeight)
         .clipped()
     }
@@ -220,23 +221,47 @@ private struct MathWebViewRepresentable: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
-        var lastRenderKey: RenderKey?
+        var lastRenderKey: RenderKey? {
+            didSet {
+                if oldValue != lastRenderKey {
+                    recentHeightsForKey.removeAll()
+                }
+            }
+        }
         var didStartInitialLoad = false
         var isShellLoaded = false
         var pendingPayloadJSON: String?
         var debounceTask: Task<Void, Never>?
         var onHeightChange: (CGFloat) -> Void
+        private var recentHeightsForKey: [CGFloat] = []
 
         init(onHeightChange: @escaping @MainActor (CGFloat) -> Void) {
             self.onHeightChange = onHeightChange
         }
 
         func handleHeightMessage(_ body: Any) {
+            let newHeight: CGFloat?
             if let num = body as? NSNumber {
-                onHeightChange(CGFloat(num.doubleValue))
+                newHeight = CGFloat(num.doubleValue)
             } else if let dbl = body as? Double {
-                onHeightChange(CGFloat(dbl))
+                newHeight = CGFloat(dbl)
+            } else {
+                newHeight = nil
             }
+            guard let height = newHeight, height > 0 else { return }
+
+            // Break layout oscillation loops where a scrollbar threshold flips height A <-> B for identical content.
+            if recentHeightsForKey.count >= 4,
+               let prev = recentHeightsForKey.last,
+               abs(prev - height) > 1,
+               recentHeightsForKey.dropLast().contains(where: { abs($0 - height) < 1.5 }) {
+                return
+            }
+            recentHeightsForKey.append(height)
+            if recentHeightsForKey.count > 6 {
+                recentHeightsForKey.removeFirst(recentHeightsForKey.count - 6)
+            }
+            onHeightChange(height)
         }
 
         func applyPayload(_ payloadJSON: String, to webView: WKWebView) {
@@ -311,6 +336,9 @@ private final class WeakScriptMessageProxy: NSObject, WKScriptMessageHandler {
 /// and disables scroll bounce/scrollbars.
 private final class ForwardingWKWebView: WKWebView {
     override var isOpaque: Bool { false }
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
 
     override func scrollWheel(with event: NSEvent) {
         if abs(event.scrollingDeltaY) >= abs(event.scrollingDeltaX) {

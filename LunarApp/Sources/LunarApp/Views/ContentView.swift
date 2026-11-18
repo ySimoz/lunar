@@ -329,8 +329,7 @@ public struct ContentView: View {
         case .tools:
             ToolsView(
                 pomodoroVM: pomodoroVM,
-                grapherVM: grapherVM,
-                libraryVM: libraryVM
+                grapherVM: grapherVM
             )
         }
     }

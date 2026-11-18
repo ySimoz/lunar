@@ -69,16 +69,16 @@ public enum GraphFeatureSolver {
 
         struct CompiledCurve {
             let id: UUID
-            let implicitAST: MathASTNode
-            let explicitAST: MathASTNode?
+            let compiledEquation: CompiledGraphEquation
+            var implicitAST: MathASTNode { compiledEquation.implicitAST }
+            var explicitAST: MathASTNode? { compiledEquation.explicitAST }
         }
 
         let compiled: [CompiledCurve] = equations.compactMap { entry in
-            guard let implicit = try? MathExpressionEvaluator.compileEquation(entry.expression, allowFreeParameters: true) else {
+            guard let compiledEq = try? MathExpressionEvaluator.compileGraphEquation(entry.expression, allowFreeParameters: true) else {
                 return nil
             }
-            let explicit = MathExpressionEvaluator.parseExplicitFunction(entry.expression, allowFreeParameters: true)
-            return CompiledCurve(id: entry.id, implicitAST: implicit, explicitAST: explicit)
+            return CompiledCurve(id: entry.id, compiledEquation: compiledEq)
         }
         guard !compiled.isEmpty else { return [] }
 
@@ -99,7 +99,7 @@ public enum GraphFeatureSolver {
                     continue
                 }
                 let roots = findRoots(of: evalX, in: xRange, ySpan: ySpan, maxCount: maxPerCategory)
-                for rx in roots {
+                for rx in roots where curve.compiledEquation.satisfiesRestrictions(x: rx, y: 0, parameters: parameters) {
                     xIntercepts.append(GraphKeyPoint(
                         x: rx,
                         y: 0,
@@ -115,7 +115,8 @@ public enum GraphFeatureSolver {
             for curve in compiled {
                 if let f = curve.explicitAST {
                     let y0 = f.evaluate(x: 0, y: 0, parameters: parameters)
-                    if y0.isFinite && yRange.contains(y0) {
+                    if y0.isFinite && yRange.contains(y0),
+                       curve.compiledEquation.satisfiesRestrictions(x: 0, y: y0, parameters: parameters) {
                         yIntercepts.append(GraphKeyPoint(
                             x: 0,
                             y: y0,
@@ -131,7 +132,7 @@ public enum GraphFeatureSolver {
                         continue
                     }
                     let roots = findRoots(of: evalY, in: yRange, ySpan: xSpan, maxCount: maxPerCategory)
-                    for ry in roots {
+                    for ry in roots where curve.compiledEquation.satisfiesRestrictions(x: 0, y: ry, parameters: parameters) {
                         yIntercepts.append(GraphKeyPoint(
                             x: 0,
                             y: ry,
@@ -161,7 +162,9 @@ public enum GraphFeatureSolver {
                         let yj = fj.evaluate(x: rx, y: 0, parameters: parameters)
                         guard yi.isFinite, yj.isFinite,
                               abs(yi - yj) < 1e-4,
-                              yRange.contains(yi) else {
+                              yRange.contains(yi),
+                              compiled[i].compiledEquation.satisfiesRestrictions(x: rx, y: yi, parameters: parameters),
+                              compiled[j].compiledEquation.satisfiesRestrictions(x: rx, y: yi, parameters: parameters) else {
                             continue
                         }
                         intersections.append(GraphKeyPoint(

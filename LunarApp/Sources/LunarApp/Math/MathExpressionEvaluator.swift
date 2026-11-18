@@ -8,6 +8,7 @@ public enum MathParseError: LocalizedError, Sendable, Equatable {
     case missingClosingParenthesis
     case unknownIdentifier(String)
     case multipleEqualsSigns
+    case invalidRestriction(String)
 
     public var errorDescription: String? {
         switch self {
@@ -17,7 +18,76 @@ public enum MathParseError: LocalizedError, Sendable, Equatable {
         case .missingClosingParenthesis: "Missing closing parenthesis ')'."
         case .unknownIdentifier(let name): "Unknown identifier '\(name)'."
         case .multipleEqualsSigns: "Equation may contain at most one '='."
+        case .invalidRestriction(let msg): msg
         }
+    }
+}
+
+/// Comparison operator supported inside equation domain/range restrictions (`{x > 0}`, `{y <= x}`).
+public enum RestrictionComparisonOp: String, Sendable, Equatable {
+    case lessThan = "<"
+    case lessThanOrEqual = "<="
+    case greaterThan = ">"
+    case greaterThanOrEqual = ">="
+    case equal = "="
+}
+
+/// Single parsed restriction inequality/equality (`lhs op rhs`) evaluated at `(x, y, parameters)`.
+public struct MathRestrictionClause: Sendable, Equatable {
+    public let lhs: MathASTNode
+    public let op: RestrictionComparisonOp
+    public let rhs: MathASTNode
+
+    public func isSatisfied(x: Double, y: Double, parameters: [Character: Double]) -> Bool {
+        let l = lhs.evaluate(x: x, y: y, parameters: parameters)
+        let r = rhs.evaluate(x: x, y: y, parameters: parameters)
+        guard l.isFinite && r.isFinite else { return false }
+        let eps = 1e-9
+        switch op {
+        case .lessThan: return l < r - eps
+        case .lessThanOrEqual: return l <= r + eps
+        case .greaterThan: return l > r + eps
+        case .greaterThanOrEqual: return l >= r - eps
+        case .equal: return abs(l - r) <= 1e-6
+        }
+    }
+}
+
+/// Fully compiled graph equation including boundary curves, optional inequality relation,
+/// optional `{...}` domain/range restrictions, and free scalar parameters.
+public struct CompiledGraphEquation: Sendable, Equatable {
+    public let implicitAST: MathASTNode
+    public let boundaries: [MathASTNode]
+    public let explicitAST: MathASTNode?
+    public let relationClauses: [MathRestrictionClause]
+    public let restrictions: [MathRestrictionClause]
+    public let freeParameters: [Character]
+
+    public var isInequality: Bool {
+        !relationClauses.isEmpty
+    }
+
+    public var hasStrictBoundary: Bool {
+        relationClauses.contains { $0.op == .lessThan || $0.op == .greaterThan }
+    }
+
+    public func satisfiesRestrictions(x: Double, y: Double, parameters: [Character: Double]) -> Bool {
+        for clause in restrictions {
+            if !clause.isSatisfied(x: x, y: y, parameters: parameters) {
+                return false
+            }
+        }
+        return true
+    }
+
+    public func isShaded(x: Double, y: Double, parameters: [Character: Double]) -> Bool {
+        guard !relationClauses.isEmpty else { return false }
+        for clause in relationClauses {
+            if !clause.isSatisfied(x: x, y: y, parameters: parameters) {
+                return false
+            }
+        }
+        return satisfiesRestrictions(x: x, y: y, parameters: parameters)
     }
 }
 
@@ -66,14 +136,16 @@ public indirect enum MathASTNode: Sendable, Equatable {
     case negate(MathASTNode)
     case binary(BinaryOp, MathASTNode, MathASTNode)
     case call(MathFunction, MathASTNode)
+    case multiCall(MultiMathFunction, [MathASTNode])
 
     public enum MathConstant: String, Sendable, Equatable {
-        case pi, e
+        case pi, e, phi
 
         public var numericValue: Double {
             switch self {
             case .pi: Double.pi
             case .e: M_E
+            case .phi: (1.0 + Darwin.sqrt(5.0)) * 0.5
             }
         }
     }
@@ -83,7 +155,28 @@ public indirect enum MathASTNode: Sendable, Equatable {
     }
 
     public enum MathFunction: String, Sendable, Equatable {
-        case sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp
+        case sin, cos, tan, csc, sec, cot
+        case asin, acos, atan
+        case sinh, cosh, tanh, asinh, acosh, atanh
+        case sqrt, abs, ln, log, log2, exp
+        case floor, ceil, round, sign
+
+        static func resolveAlias(_ raw: String) -> MathFunction? {
+            switch raw {
+            case "arcsin": return .asin
+            case "arccos": return .acos
+            case "arctan": return .atan
+            case "arcsinh": return .asinh
+            case "arccosh": return .acosh
+            case "arctanh": return .atanh
+            case "sgn": return .sign
+            default: return MathFunction(rawValue: raw)
+            }
+        }
+    }
+
+    public enum MultiMathFunction: String, Sendable, Equatable {
+        case min, max, mod, logBase = "logb"
     }
 
     public func evaluate(x: Double, y: Double) -> Double {
@@ -114,6 +207,9 @@ public indirect enum MathASTNode: Sendable, Equatable {
             }
         case .call(let fn, let arg):
             return Self.evaluateCall(fn, value: arg.evaluate(x: x, y: y, parameters: parameters))
+        case .multiCall(let fn, let args):
+            let vals = args.map { $0.evaluate(x: x, y: y, parameters: parameters) }
+            return Self.evaluateMultiCall(fn, values: vals)
         }
     }
 
@@ -139,6 +235,9 @@ public indirect enum MathASTNode: Sendable, Equatable {
             }
         case .call(let fn, let arg):
             return Self.evaluateCall(fn, value: arg.evaluate(variables: variables))
+        case .multiCall(let fn, let args):
+            let vals = args.map { $0.evaluate(variables: variables) }
+            return Self.evaluateMultiCall(fn, values: vals)
         }
     }
 
@@ -147,14 +246,48 @@ public indirect enum MathASTNode: Sendable, Equatable {
         case .sin: Darwin.sin(v)
         case .cos: Darwin.cos(v)
         case .tan: Darwin.tan(v)
+        case .csc: 1.0 / Darwin.sin(v)
+        case .sec: 1.0 / Darwin.cos(v)
+        case .cot: 1.0 / Darwin.tan(v)
         case .asin: Darwin.asin(v)
         case .acos: Darwin.acos(v)
         case .atan: Darwin.atan(v)
+        case .sinh: Darwin.sinh(v)
+        case .cosh: Darwin.cosh(v)
+        case .tanh: Darwin.tanh(v)
+        case .asinh: Darwin.asinh(v)
+        case .acosh: Darwin.acosh(v)
+        case .atanh: Darwin.atanh(v)
         case .sqrt: Darwin.sqrt(v)
         case .abs: Swift.abs(v)
         case .ln: Darwin.log(v)
         case .log: Darwin.log10(v)
+        case .log2: Darwin.log2(v)
         case .exp: Darwin.exp(v)
+        case .floor: Darwin.floor(v)
+        case .ceil: Darwin.ceil(v)
+        case .round: v.rounded()
+        case .sign: v > 0 ? 1.0 : (v < 0 ? -1.0 : (v.isNaN ? .nan : 0.0))
+        }
+    }
+
+    private static func evaluateMultiCall(_ fn: MultiMathFunction, values: [Double]) -> Double {
+        guard !values.isEmpty, values.allSatisfy(\.isFinite) else { return .nan }
+        switch fn {
+        case .min:
+            return values.min() ?? .nan
+        case .max:
+            return values.max() ?? .nan
+        case .mod:
+            guard values.count == 2 else { return .nan }
+            let a = values[0], b = values[1]
+            guard b != 0 else { return .nan }
+            return a - b * Darwin.floor(a / b)
+        case .logBase:
+            guard values.count == 2 else { return .nan }
+            let x = values[0], base = values[1]
+            guard x > 0, base > 0, base != 1 else { return .nan }
+            return Darwin.log(x) / Darwin.log(base)
         }
     }
 
@@ -170,6 +303,8 @@ public indirect enum MathASTNode: Sendable, Equatable {
             return lhs.freeVariables.union(rhs.freeVariables)
         case .call(_, let arg):
             return arg.freeVariables
+        case .multiCall(_, let args):
+            return args.reduce(into: Set<Character>()) { $0.formUnion($1.freeVariables) }
         }
     }
 
@@ -195,6 +330,8 @@ public indirect enum MathASTNode: Sendable, Equatable {
                 walk(rhs)
             case .call(_, let arg):
                 walk(arg)
+            case .multiCall(_, let args):
+                for arg in args { walk(arg) }
             }
         }
         walk(self)
@@ -222,6 +359,10 @@ public enum MathExpressionEvaluator {
         case op(Character)
         case lparen
         case rparen
+        case comma
+        case underscore
+        case barOpen
+        case barClose
     }
 
     public static func parseExpression(
@@ -238,27 +379,101 @@ public enum MathExpressionEvaluator {
         return node
     }
 
+    /// Normalizes inequality word phrases (`less than`, `leq`, `geq`, `\leq`, `\geq`, etc.) into canonical operators.
+    public static func normalizeComparisonKeywords(_ raw: String) -> String {
+        let patterns: [(pattern: String, replacement: String)] = [
+            (#"(?i)\bless\s+than\s+or\s+equal(\s+to)?\b"#, " <= "),
+            (#"(?i)\bless\s+or\s+equal(\s+to)?\b"#, " <= "),
+            (#"(?i)\bgreater\s+than\s+or\s+equal(\s+to)?\b"#, " >= "),
+            (#"(?i)\bmore\s+than\s+or\s+equal(\s+to)?\b"#, " >= "),
+            (#"(?i)\bgreater\s+or\s+equal(\s+to)?\b"#, " >= "),
+            (#"(?i)\bmore\s+or\s+equal(\s+to)?\b"#, " >= "),
+            (#"(?i)\bless\s+than\b"#, " < "),
+            (#"(?i)\bgreater\s+than\b"#, " > "),
+            (#"(?i)\bmore\s+than\b"#, " > "),
+            (#"(?i)\\leq\b|\\le\b|\bleq\b"#, " <= "),
+            (#"(?i)\\geq\b|\\ge\b|\bgeq\b"#, " >= "),
+            (#"(?i)\\lt\b|\blt\b"#, " < "),
+            (#"(?i)\\gt\b|\bgt\b"#, " > "),
+            (#"≤"#, " <= "),
+            (#"≥"#, " >= ")
+        ]
+
+        var result = raw
+        for (pattern, replacement) in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let range = NSRange(location: 0, length: (result as NSString).length)
+                result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: replacement)
+            }
+        }
+        return result
+    }
+
+    /// Compiles an equation or inequality string with optional `{ ... }` domain/range restrictions
+    /// (e.g., `y = x^2 {x > 0}`, `y < x + 2`, `x^2 + y^2 <= 9`, `y leq sin(x)`).
+    public static func compileGraphEquation(
+        _ raw: String,
+        allowFreeParameters: Bool = true
+    ) throws -> CompiledGraphEquation {
+        let (baseRaw, restrictionBlocks) = try extractRestrictionBlocks(from: raw)
+        let normalizedBase = normalizeComparisonKeywords(baseRaw)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedBase.isEmpty else { throw MathParseError.emptyExpression }
+
+        let allowed: Set<Character> = allowFreeParameters ? defaultGraphAllowedVariables : ["x", "y"]
+        let (boundaries, relationClauses, explicitAST) = try compileRelationParts(
+            normalizedBase,
+            allowed: allowed
+        )
+
+        var clauses: [MathRestrictionClause] = []
+        for block in restrictionBlocks {
+            let parts = splitTopLevelCommaArguments(block)
+            if parts.isEmpty {
+                throw MathParseError.invalidRestriction("Empty restriction '{}'.")
+            }
+            for part in parts {
+                if part.isEmpty {
+                    throw MathParseError.invalidRestriction("Empty restriction clause inside '{...}'.")
+                }
+                let parsedClauses = try parseComparisonChain(
+                    part,
+                    allowedVariables: allowed,
+                    allowImplicitEqualityOnly: false
+                ).clauses
+                clauses.append(contentsOf: parsedClauses)
+            }
+        }
+
+        var orderedParams: [Character] = []
+        var seen = Set<Character>()
+        for ast in boundaries {
+            for ch in ast.orderedVariables where allowedParameterCharacters.contains(ch) {
+                if seen.insert(ch).inserted { orderedParams.append(ch) }
+            }
+        }
+        for clause in clauses {
+            for ch in clause.lhs.orderedVariables + clause.rhs.orderedVariables where allowedParameterCharacters.contains(ch) {
+                if seen.insert(ch).inserted { orderedParams.append(ch) }
+            }
+        }
+
+        return CompiledGraphEquation(
+            implicitAST: boundaries[0],
+            boundaries: boundaries,
+            explicitAST: explicitAST,
+            relationClauses: relationClauses,
+            restrictions: clauses,
+            freeParameters: orderedParams
+        )
+    }
+
     /// Parses either `LHS = RHS` (evaluating `F(x, y) = LHS - RHS`) or an explicit expression `f(x)` (`F(x, y) = y - f(x)`).
     public static func compileEquation(
         _ raw: String,
         allowFreeParameters: Bool = true
     ) throws -> MathASTNode {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw MathParseError.emptyExpression }
-
-        let allowed: Set<Character> = allowFreeParameters ? defaultGraphAllowedVariables : ["x", "y"]
-        let parts = trimmed.components(separatedBy: "=")
-        if parts.count > 2 {
-            throw MathParseError.multipleEqualsSigns
-        }
-        if parts.count == 2 {
-            let lhs = try parseExpression(parts[0], allowedVariables: allowed)
-            let rhs = try parseExpression(parts[1], allowedVariables: allowed)
-            return .binary(.subtract, lhs, rhs)
-        } else {
-            let rhs = try parseExpression(parts[0], allowedVariables: allowed)
-            return .binary(.subtract, .variable("y"), rhs)
-        }
+        try compileGraphEquation(raw, allowFreeParameters: allowFreeParameters).implicitAST
     }
 
     /// Parses an explicit `y = f(x)`, `f(x) = y`, or bare `f(x)` equation into `f(x)`, returning `nil` for implicit equations.
@@ -266,53 +481,199 @@ public enum MathExpressionEvaluator {
         _ raw: String,
         allowFreeParameters: Bool = true
     ) -> MathASTNode? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let allowed: Set<Character> = allowFreeParameters ? defaultGraphAllowedVariables : ["x", "y"]
-        let parts = trimmed.components(separatedBy: "=")
-        guard parts.count <= 2 else { return nil }
-
-        if parts.count == 1 {
-            guard let rhs = try? parseExpression(parts[0], allowedVariables: allowed),
-                  !rhs.dependsOn("y") else {
-                return nil
-            }
-            return rhs
-        }
-
-        let lhsRaw = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-        let rhsRaw = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-        if lhsRaw.lowercased() == "y" {
-            guard let rhs = try? parseExpression(rhsRaw, allowedVariables: allowed),
-                  !rhs.dependsOn("y") else {
-                return nil
-            }
-            return rhs
-        }
-        if rhsRaw.lowercased() == "y" {
-            guard let lhs = try? parseExpression(lhsRaw, allowedVariables: allowed),
-                  !lhs.dependsOn("y") else {
-                return nil
-            }
-            return lhs
-        }
-        return nil
+        try? compileGraphEquation(raw, allowFreeParameters: allowFreeParameters).explicitAST
     }
 
     /// Extracts ordered unbound single-letter scalar parameter names (`a`, `b`, `k`, ...) from a valid plotted equation,
     /// excluding built-in constants (`e`, `pi`), independent variables (`x`, `y`, `t`, `r`, `theta`), and math functions.
     public static func extractFreeParameters(from raw: String) -> [Character] {
-        guard let ast = try? compileEquation(raw, allowFreeParameters: true) else {
-            return []
+        (try? compileGraphEquation(raw, allowFreeParameters: true).freeParameters) ?? []
+    }
+
+    private static func compileRelationParts(
+        _ normalizedBase: String,
+        allowed: Set<Character>
+    ) throws -> (boundaries: [MathASTNode], relationClauses: [MathRestrictionClause], explicitAST: MathASTNode?) {
+        let chain = try parseComparisonChain(
+            normalizedBase,
+            allowedVariables: allowed,
+            allowImplicitEqualityOnly: true
+        )
+
+        // Bare expression `f(x)` -> `y = f(x)`
+        if chain.ops.isEmpty {
+            let rhs = chain.nodes[0]
+            let implicit = MathASTNode.binary(.subtract, .variable("y"), rhs)
+            let explicit = rhs.dependsOn("y") ? nil : rhs
+            return ([implicit], [], explicit)
         }
-        return ast.orderedVariables.filter { allowedParameterCharacters.contains($0) }
+
+        let isAllEquals = chain.ops.allSatisfy { $0 == .equal }
+        if isAllEquals {
+            if chain.ops.count > 1 {
+                throw MathParseError.multipleEqualsSigns
+            }
+            let lhs = chain.nodes[0]
+            let rhs = chain.nodes[1]
+            let implicit = MathASTNode.binary(.subtract, lhs, rhs)
+            let lhsTrim = chain.rawParts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let rhsTrim = chain.rawParts[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let explicit: MathASTNode? = if lhsTrim == "y" && !rhs.dependsOn("y") {
+                rhs
+            } else if rhsTrim == "y" && !lhs.dependsOn("y") {
+                lhs
+            } else {
+                nil
+            }
+            return ([implicit], [], explicit)
+        }
+
+        // Reject mixed `=` with `<`/`>` in chained top-level relations unless all inequalities.
+        if chain.ops.contains(.equal) {
+            throw MathParseError.invalidRestriction("Cannot mix '=' and inequalities in one relation.")
+        }
+
+        let boundaries = chain.clauses.map { MathASTNode.binary(.subtract, $0.lhs, $0.rhs) }
+        var explicit: MathASTNode? = nil
+        if chain.ops.count == 1 {
+            let lhsTrim = chain.rawParts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let rhsTrim = chain.rawParts[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if lhsTrim == "y" && !chain.nodes[1].dependsOn("y") {
+                explicit = chain.nodes[1]
+            } else if rhsTrim == "y" && !chain.nodes[0].dependsOn("y") {
+                explicit = chain.nodes[0]
+            }
+        }
+        return (boundaries, chain.clauses, explicit)
+    }
+
+    private static func extractRestrictionBlocks(from raw: String) throws -> (equation: String, blocks: [String]) {
+        var equationChars: [Character] = []
+        var blocks: [String] = []
+        var currentBlock: [Character] = []
+        var inBraces = false
+
+        for ch in raw {
+            if ch == "{" {
+                if inBraces {
+                    throw MathParseError.invalidRestriction("Nested '{' is not supported in restrictions.")
+                }
+                inBraces = true
+                currentBlock.removeAll(keepingCapacity: true)
+            } else if ch == "}" {
+                if !inBraces {
+                    throw MathParseError.invalidRestriction("Unexpected '}' without matching '{'.")
+                }
+                inBraces = false
+                blocks.append(String(currentBlock).trimmingCharacters(in: .whitespacesAndNewlines))
+            } else if inBraces {
+                currentBlock.append(ch)
+            } else {
+                equationChars.append(ch)
+            }
+        }
+
+        if inBraces {
+            throw MathParseError.invalidRestriction("Missing closing '}' for restriction.")
+        }
+
+        let equation = String(equationChars).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (equation, blocks)
+    }
+
+    private static func parseComparisonChain(
+        _ rawClause: String,
+        allowedVariables: Set<Character>,
+        allowImplicitEqualityOnly: Bool
+    ) throws -> (rawParts: [String], nodes: [MathASTNode], ops: [RestrictionComparisonOp], clauses: [MathRestrictionClause]) {
+        let normalized = normalizeComparisonKeywords(rawClause)
+        let chars = Array(normalized)
+        var expressionsRaw: [String] = []
+        var ops: [RestrictionComparisonOp] = []
+        var start = 0
+        var depth = 0
+        var i = 0
+
+        while i < chars.count {
+            let ch = chars[i]
+            if ch == "(" {
+                depth += 1
+                i += 1
+                continue
+            }
+            if ch == ")" {
+                depth = max(0, depth - 1)
+                i += 1
+                continue
+            }
+            guard depth == 0 else {
+                i += 1
+                continue
+            }
+
+            let matchedOp: (op: RestrictionComparisonOp, length: Int)?
+            if ch == "<" {
+                if i + 1 < chars.count && chars[i + 1] == "=" {
+                    matchedOp = (.lessThanOrEqual, 2)
+                } else {
+                    matchedOp = (.lessThan, 1)
+                }
+            } else if ch == ">" {
+                if i + 1 < chars.count && chars[i + 1] == "=" {
+                    matchedOp = (.greaterThanOrEqual, 2)
+                } else {
+                    matchedOp = (.greaterThan, 1)
+                }
+            } else if ch == "≤" {
+                matchedOp = (.lessThanOrEqual, 1)
+            } else if ch == "≥" {
+                matchedOp = (.greaterThanOrEqual, 1)
+            } else if ch == "=" {
+                matchedOp = (.equal, 1)
+            } else {
+                matchedOp = nil
+            }
+
+            if let matchedOp {
+                let expr = String(chars[start..<i]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !expr.isEmpty else {
+                    throw MathParseError.invalidRestriction("Incomplete comparison near '\(matchedOp.op.rawValue)'.")
+                }
+                expressionsRaw.append(expr)
+                ops.append(matchedOp.op)
+                i += matchedOp.length
+                start = i
+            } else {
+                i += 1
+            }
+        }
+
+        let tail = String(chars[start..<chars.count]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if ops.isEmpty {
+            if allowImplicitEqualityOnly {
+                let node = try parseExpression(tail, allowedVariables: allowedVariables)
+                return ([tail], [node], [], [])
+            }
+            throw MathParseError.invalidRestriction("Use comparisons inside '{...}', e.g. {x > 0} or {-2 <= x <= 2}.")
+        }
+        guard !tail.isEmpty else {
+            throw MathParseError.invalidRestriction("Incomplete comparison in '\(rawClause)'.")
+        }
+        expressionsRaw.append(tail)
+
+        let nodes = try expressionsRaw.map { try parseExpression($0, allowedVariables: allowedVariables) }
+        var clauses: [MathRestrictionClause] = []
+        for idx in 0..<ops.count {
+            clauses.append(MathRestrictionClause(lhs: nodes[idx], op: ops[idx], rhs: nodes[idx + 1]))
+        }
+        return (expressionsRaw, nodes, ops, clauses)
     }
 
     private static func tokenize(_ raw: String, allowedVariables: Set<Character>) throws -> [Token] {
         var tokens: [Token] = []
         let chars = Array(raw)
         var i = 0
+        var openBarDepth = 0
 
         while i < chars.count {
             let ch = chars[i]
@@ -344,12 +705,29 @@ public enum MathExpressionEvaluator {
                 continue
             }
 
+            if ch == "π" {
+                tokens.append(.identifier("pi"))
+                i += 1
+                continue
+            }
+
+            if ch == "φ" || ch == "ϕ" {
+                tokens.append(.identifier("phi"))
+                i += 1
+                continue
+            }
+
             if ch.isLetter {
                 let start = i
-                while i < chars.count && chars[i].isLetter {
+                while i < chars.count && chars[i].isLetter && chars[i] != "π" && chars[i] != "φ" && chars[i] != "ϕ" {
                     i += 1
                 }
-                let word = String(chars[start..<i]).lowercased()
+                var word = String(chars[start..<i]).lowercased()
+                if word == "log", i < chars.count, chars[i] == "2",
+                   (i + 1 >= chars.count || !chars[i + 1].isNumber) {
+                    word = "log2"
+                    i += 1
+                }
                 // Split adjacent single-letter variables like `xy` unless recognized word
                 if isKnownWord(word, allowedVariables: allowedVariables) {
                     tokens.append(.identifier(word))
@@ -371,45 +749,119 @@ public enum MathExpressionEvaluator {
             case ")":
                 tokens.append(.rparen)
                 i += 1
+            case ",":
+                tokens.append(.comma)
+                i += 1
+            case "_":
+                tokens.append(.underscore)
+                i += 1
+            case "|":
+                let isOpening: Bool
+                if openBarDepth == 0 {
+                    isOpening = true
+                } else if let prev = tokens.last {
+                    switch prev {
+                    case .op, .lparen, .comma, .underscore, .barOpen:
+                        isOpening = true
+                    case .identifier(let id):
+                        isOpening = MathASTNode.MathFunction.resolveAlias(id) != nil
+                            || MathASTNode.MultiMathFunction(rawValue: id) != nil
+                    case .number, .rparen, .barClose:
+                        isOpening = false
+                    }
+                } else {
+                    isOpening = true
+                }
+                if isOpening {
+                    openBarDepth += 1
+                    tokens.append(.barOpen)
+                } else {
+                    openBarDepth = max(0, openBarDepth - 1)
+                    tokens.append(.barClose)
+                }
+                i += 1
             default:
                 throw MathParseError.unexpectedCharacter(ch)
             }
         }
 
-        // Insert implicit `*` where adjacent tokens denote multiplication:
-        // number/identifier/')' followed by identifier/'(' or ')' followed by number
+        // Insert implicit `*` where adjacent tokens denote multiplication,
+        // while keeping `log_<base>(arg)` subscript bases attached to `(arg)`.
         var expanded: [Token] = []
         expanded.reserveCapacity(tokens.count)
+        enum SubscriptBaseState {
+            case none
+            case expectingStart
+            case inParens(depth: Int)
+            case readyForCallParen
+        }
+        var subState: SubscriptBaseState = .none
+
         for idx in tokens.indices {
             let current = tokens[idx]
+            if case .readyForCallParen = subState, case .lparen = current {
+                subState = .none
+                expanded.append(current)
+                continue
+            }
             if let prev = expanded.last, needsImplicitMultiply(prev: prev, next: current) {
                 expanded.append(.op("*"))
             }
             expanded.append(current)
+
+            switch subState {
+            case .none:
+                if case .underscore = current,
+                   expanded.count >= 2,
+                   case .identifier("log") = expanded[expanded.count - 2] {
+                    subState = .expectingStart
+                }
+            case .expectingStart:
+                switch current {
+                case .lparen:
+                    subState = .inParens(depth: 1)
+                case .number, .identifier:
+                    subState = .readyForCallParen
+                default:
+                    subState = .none
+                }
+            case .inParens(let depth):
+                if case .lparen = current {
+                    subState = .inParens(depth: depth + 1)
+                } else if case .rparen = current {
+                    let nextDepth = depth - 1
+                    subState = nextDepth == 0 ? .readyForCallParen : .inParens(depth: nextDepth)
+                }
+            case .readyForCallParen:
+                subState = .none
+            }
         }
         return expanded
     }
 
     private static func isKnownWord(_ word: String, allowedVariables: Set<Character>) -> Bool {
-        if word == "pi" || word == "e" || word == "theta" {
+        if word == "pi" || word == "e" || word == "phi" || word == "theta" {
             return true
         }
         if word.count == 1, let ch = word.first, allowedVariables.contains(ch) {
             return true
         }
-        return MathASTNode.MathFunction(rawValue: word) != nil
+        return MathASTNode.MathFunction.resolveAlias(word) != nil
+            || MathASTNode.MultiMathFunction(rawValue: word) != nil
     }
 
     private static func needsImplicitMultiply(prev: Token, next: Token) -> Bool {
         let prevIsValue: Bool = switch prev {
-        case .number, .rparen: true
-        case .identifier(let id): MathASTNode.MathFunction(rawValue: id) == nil
-        case .op, .lparen: false
+        case .number, .rparen, .barClose: true
+        case .identifier(let id):
+            MathASTNode.MathFunction.resolveAlias(id) == nil
+                && MathASTNode.MultiMathFunction(rawValue: id) == nil
+        case .op, .lparen, .comma, .underscore, .barOpen: false
         }
 
         let nextStartsValue: Bool = switch next {
-        case .number, .identifier, .lparen: true
-        case .op, .rparen: false
+        case .number, .identifier, .lparen, .barOpen: true
+        case .op, .rparen, .comma, .underscore, .barClose: false
         }
 
         if !prevIsValue || !nextStartsValue {
@@ -428,6 +880,9 @@ public enum MathExpressionEvaluator {
         case .op(let c): String(c)
         case .lparen: "("
         case .rparen: ")"
+        case .comma: ","
+        case .underscore: "_"
+        case .barOpen, .barClose: "|"
         }
     }
 
@@ -512,14 +967,71 @@ public enum MathExpressionEvaluator {
                 }
                 return inner
 
+            case .barOpen:
+                let inner = try parseAdditive()
+                guard case .barClose = consume() else {
+                    throw MathParseError.unexpectedToken("|")
+                }
+                return .call(.abs, inner)
+
             case .identifier(let name):
                 if name == "pi" { return .constant(.pi) }
                 if name == "e" { return .constant(.e) }
+                if name == "phi" { return .constant(.phi) }
                 if name.count == 1, let ch = name.first, allowedVariables.contains(ch) {
                     return .variable(ch)
                 }
 
-                if let fn = MathASTNode.MathFunction(rawValue: name) {
+                if name == "log" {
+                    if case .underscore = peek() {
+                        _ = consume()
+                        let baseArg = try parsePrimary()
+                        guard case .lparen = consume() else {
+                            throw MathParseError.unexpectedToken(name)
+                        }
+                        let arg = try parseAdditive()
+                        guard case .rparen = consume() else {
+                            throw MathParseError.missingClosingParenthesis
+                        }
+                        return .multiCall(.logBase, [arg, baseArg])
+                    }
+                    guard case .lparen = consume() else {
+                        throw MathParseError.unexpectedToken(name)
+                    }
+                    let firstArg = try parseAdditive()
+                    if case .comma = peek() {
+                        _ = consume()
+                        let baseArg = try parseAdditive()
+                        guard case .rparen = consume() else {
+                            throw MathParseError.missingClosingParenthesis
+                        }
+                        return .multiCall(.logBase, [firstArg, baseArg])
+                    }
+                    guard case .rparen = consume() else {
+                        throw MathParseError.missingClosingParenthesis
+                    }
+                    return .call(.log, firstArg)
+                }
+
+                if let multiFn = MathASTNode.MultiMathFunction(rawValue: name) {
+                    guard case .lparen = consume() else {
+                        throw MathParseError.unexpectedToken(name)
+                    }
+                    var args: [MathASTNode] = [try parseAdditive()]
+                    while case .comma = peek() {
+                        _ = consume()
+                        args.append(try parseAdditive())
+                    }
+                    guard case .rparen = consume() else {
+                        throw MathParseError.missingClosingParenthesis
+                    }
+                    if (multiFn == .mod || multiFn == .logBase) && args.count != 2 {
+                        throw MathParseError.unexpectedToken("\(name) expects 2 arguments")
+                    }
+                    return .multiCall(multiFn, args)
+                }
+
+                if let fn = MathASTNode.MathFunction.resolveAlias(name) {
                     guard case .lparen = consume() else {
                         throw MathParseError.unexpectedToken(name)
                     }
@@ -535,6 +1047,12 @@ public enum MathExpressionEvaluator {
                 throw MathParseError.unexpectedToken(String(ch))
             case .rparen:
                 throw MathParseError.unexpectedToken(")")
+            case .comma:
+                throw MathParseError.unexpectedToken(",")
+            case .underscore:
+                throw MathParseError.unexpectedToken("_")
+            case .barClose:
+                throw MathParseError.unexpectedToken("|")
             }
         }
     }
@@ -555,11 +1073,69 @@ public struct ContourSegment: Sendable, Equatable {
     }
 }
 
+/// Horizontal shaded span in world math coordinates extracted for inequality graphs.
+public struct ContourRect: Sendable, Equatable {
+    public let xMin: Double
+    public let yMin: Double
+    public let xMax: Double
+    public let yMax: Double
+}
+
 /// 130x90 Marching Squares zero-contour extractor for implicit (`LHS = RHS`) and explicit (`y = f(x)`) curves.
 public enum MarchingSquares {
     public static let defaultColumns = 130
     public static let defaultRows = 90
     private static let asymptoteJumpLimit = 80.0
+
+    /// Extracts coalesced world-space horizontal strips covering `(x, y)` where the inequality + restrictions hold.
+    public static func extractShadedRects(
+        compiled: CompiledGraphEquation,
+        xRange: ClosedRange<Double>,
+        yRange: ClosedRange<Double>,
+        columns: Int = 96,
+        rows: Int = 64,
+        parameters: [Character: Double] = [:]
+    ) -> [ContourRect] {
+        guard compiled.isInequality, columns > 0, rows > 0 else { return [] }
+        let dx = (xRange.upperBound - xRange.lowerBound) / Double(columns)
+        let dy = (yRange.upperBound - yRange.lowerBound) / Double(rows)
+        guard dx > 0, dy > 0 else { return [] }
+
+        var rects: [ContourRect] = []
+        rects.reserveCapacity(rows * 2)
+
+        for r in 0..<rows {
+            let y0 = yRange.lowerBound + Double(r) * dy
+            let y1 = y0 + dy
+            let ym = 0.5 * (y0 + y1)
+            var runStartCol: Int?
+
+            for c in 0..<columns {
+                let xm = xRange.lowerBound + (Double(c) + 0.5) * dx
+                let shaded = compiled.isShaded(x: xm, y: ym, parameters: parameters)
+                if shaded {
+                    if runStartCol == nil { runStartCol = c }
+                } else if let start = runStartCol {
+                    rects.append(ContourRect(
+                        xMin: xRange.lowerBound + Double(start) * dx,
+                        yMin: y0,
+                        xMax: xRange.lowerBound + Double(c) * dx,
+                        yMax: y1
+                    ))
+                    runStartCol = nil
+                }
+            }
+            if let start = runStartCol {
+                rects.append(ContourRect(
+                    xMin: xRange.lowerBound + Double(start) * dx,
+                    yMin: y0,
+                    xMax: xRange.upperBound,
+                    yMax: y1
+                ))
+            }
+        }
+        return rects
+    }
 
     public static func extractSegments(
         ast: MathASTNode,
@@ -567,7 +1143,8 @@ public enum MarchingSquares {
         yRange: ClosedRange<Double>,
         columns: Int = defaultColumns,
         rows: Int = defaultRows,
-        parameters: [Character: Double] = [:]
+        parameters: [Character: Double] = [:],
+        restrictions: [MathRestrictionClause] = []
     ) -> [ContourSegment] {
         guard columns > 0, rows > 0 else { return [] }
 
@@ -635,7 +1212,13 @@ public enum MarchingSquares {
                 let pLeft   = (x0, y0 + interp(v0, v3) * dy)
 
                 func emit(_ a: (Double, Double), _ b: (Double, Double)) {
-                    segments.append(ContourSegment(x1: a.0, y1: a.1, x2: b.0, y2: b.1))
+                    if restrictions.isEmpty {
+                        segments.append(ContourSegment(x1: a.0, y1: a.1, x2: b.0, y2: b.1))
+                        return
+                    }
+                    if let clipped = clipSegment(a: a, b: b, restrictions: restrictions, parameters: parameters) {
+                        segments.append(clipped)
+                    }
                 }
 
                 switch mask {
@@ -670,6 +1253,61 @@ public enum MarchingSquares {
         }
 
         return segments
+    }
+
+    private static func satisfiesRestrictions(
+        _ x: Double,
+        _ y: Double,
+        restrictions: [MathRestrictionClause],
+        parameters: [Character: Double]
+    ) -> Bool {
+        for clause in restrictions {
+            if !clause.isSatisfied(x: x, y: y, parameters: parameters) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Clips a contour segment against `{...}` domain/range restrictions so restricted boundaries terminate cleanly.
+    private static func clipSegment(
+        a: (Double, Double),
+        b: (Double, Double),
+        restrictions: [MathRestrictionClause],
+        parameters: [Character: Double]
+    ) -> ContourSegment? {
+        let aOK = satisfiesRestrictions(a.0, a.1, restrictions: restrictions, parameters: parameters)
+        let bOK = satisfiesRestrictions(b.0, b.1, restrictions: restrictions, parameters: parameters)
+
+        if aOK && bOK {
+            return ContourSegment(x1: a.0, y1: a.1, x2: b.0, y2: b.1)
+        }
+        if !aOK && !bOK {
+            let midX = 0.5 * (a.0 + b.0)
+            let midY = 0.5 * (a.1 + b.1)
+            return satisfiesRestrictions(midX, midY, restrictions: restrictions, parameters: parameters)
+                ? ContourSegment(x1: a.0, y1: a.1, x2: b.0, y2: b.1)
+                : nil
+        }
+
+        // Binary-search boundary crossing between the valid endpoint and invalid endpoint.
+        let valid = aOK ? a : b
+        let invalid = aOK ? b : a
+        var lo = 0.0
+        var hi = 1.0
+        for _ in 0..<12 {
+            let mid = 0.5 * (lo + hi)
+            let mx = valid.0 + mid * (invalid.0 - valid.0)
+            let my = valid.1 + mid * (invalid.1 - valid.1)
+            if satisfiesRestrictions(mx, my, restrictions: restrictions, parameters: parameters) {
+                lo = mid
+            } else {
+                hi = mid
+            }
+        }
+        let endX = valid.0 + lo * (invalid.0 - valid.0)
+        let endY = valid.1 + lo * (invalid.1 - valid.1)
+        return ContourSegment(x1: valid.0, y1: valid.1, x2: endX, y2: endY)
     }
 }
 
@@ -764,6 +1402,13 @@ public extension MathASTNode {
             case .tan:
                 let cosSq = MathASTNode.binary(.power, .call(.cos, u), .number(2))
                 outerPrime = .binary(.divide, .number(1), cosSq)
+            case .csc:
+                outerPrime = .negate(.binary(.multiply, .call(.csc, u), .call(.cot, u)))
+            case .sec:
+                outerPrime = .binary(.multiply, .call(.sec, u), .call(.tan, u))
+            case .cot:
+                let cscSq = MathASTNode.binary(.power, .call(.csc, u), .number(2))
+                outerPrime = .negate(cscSq)
             case .asin:
                 let inner = MathASTNode.binary(.subtract, .number(1), .binary(.power, u, .number(2)))
                 outerPrime = .binary(.divide, .number(1), .call(.sqrt, inner))
@@ -773,6 +1418,22 @@ public extension MathASTNode {
             case .atan:
                 let inner = MathASTNode.binary(.add, .number(1), .binary(.power, u, .number(2)))
                 outerPrime = .binary(.divide, .number(1), inner)
+            case .sinh:
+                outerPrime = .call(.cosh, u)
+            case .cosh:
+                outerPrime = .call(.sinh, u)
+            case .tanh:
+                let coshSq = MathASTNode.binary(.power, .call(.cosh, u), .number(2))
+                outerPrime = .binary(.divide, .number(1), coshSq)
+            case .asinh:
+                let inner = MathASTNode.binary(.add, .binary(.power, u, .number(2)), .number(1))
+                outerPrime = .binary(.divide, .number(1), .call(.sqrt, inner))
+            case .acosh:
+                let inner = MathASTNode.binary(.subtract, .binary(.power, u, .number(2)), .number(1))
+                outerPrime = .binary(.divide, .number(1), .call(.sqrt, inner))
+            case .atanh:
+                let inner = MathASTNode.binary(.subtract, .number(1), .binary(.power, u, .number(2)))
+                outerPrime = .binary(.divide, .number(1), inner)
             case .sqrt:
                 outerPrime = .binary(.divide, .number(1), .binary(.multiply, .number(2), .call(.sqrt, u)))
             case .abs:
@@ -781,10 +1442,16 @@ public extension MathASTNode {
                 outerPrime = .binary(.divide, .number(1), u)
             case .log:
                 outerPrime = .binary(.divide, .number(1), .binary(.multiply, u, .call(.ln, .number(10))))
+            case .log2:
+                outerPrime = .binary(.divide, .number(1), .binary(.multiply, u, .call(.ln, .number(2))))
             case .exp:
                 outerPrime = .call(.exp, u)
+            case .floor, .ceil, .round, .sign:
+                return .number(0)
             }
             return .binary(.multiply, outerPrime, du)
+        case .multiCall:
+            return .number(0)
         }
     }
 
@@ -836,6 +1503,8 @@ public extension MathASTNode {
             let l = lhs.simplifyPass()
             let r = rhs.simplifyPass()
             return Self.simplifyBinary(op, l, r)
+        case .multiCall(let fn, let args):
+            return .multiCall(fn, args.map { $0.simplifyPass() })
         }
     }
 
@@ -1048,6 +1717,8 @@ public extension MathASTNode {
             return "\\pi"
         case .constant(.e):
             return "e"
+        case .constant(.phi):
+            return "\\varphi"
         case .variable(let name):
             return String(name)
         case .negate(let inner):
@@ -1065,16 +1736,36 @@ public extension MathASTNode {
             switch fn {
             case .sqrt: return "\\sqrt{\(argTex)}"
             case .abs: return "\\left|\(argTex)\\right|"
+            case .floor: return "\\lfloor \(argTex) \\rfloor"
+            case .ceil: return "\\lceil \(argTex) \\rceil"
+            case .round: return "\\operatorname{round}(\(argTex))"
+            case .sign: return "\\operatorname{sgn}(\(argTex))"
             case .sin: return "\\sin(\(argTex))"
             case .cos: return "\\cos(\(argTex))"
             case .tan: return "\\tan(\(argTex))"
+            case .csc: return "\\csc(\(argTex))"
+            case .sec: return "\\sec(\(argTex))"
+            case .cot: return "\\cot(\(argTex))"
             case .asin: return "\\arcsin(\(argTex))"
             case .acos: return "\\arccos(\(argTex))"
             case .atan: return "\\arctan(\(argTex))"
+            case .sinh: return "\\sinh(\(argTex))"
+            case .cosh: return "\\cosh(\(argTex))"
+            case .tanh: return "\\tanh(\(argTex))"
+            case .asinh: return "\\operatorname{asinh}(\(argTex))"
+            case .acosh: return "\\operatorname{acosh}(\(argTex))"
+            case .atanh: return "\\operatorname{atanh}(\(argTex))"
             case .ln: return "\\ln(\(argTex))"
             case .log: return "\\log_{10}(\(argTex))"
+            case .log2: return "\\log_{2}(\(argTex))"
             case .exp: return "\\exp(\(argTex))"
             }
+        case .multiCall(let fn, let args):
+            if fn == .logBase, args.count == 2 {
+                return "\\log_{\(args[1].renderLaTeX(parentPrecedence: 0))}(\(args[0].renderLaTeX(parentPrecedence: 0)))"
+            }
+            let rendered = args.map { $0.renderLaTeX(parentPrecedence: 0) }.joined(separator: ", ")
+            return "\\operatorname{\(fn.rawValue)}(\(rendered))"
         case .binary(let op, let lhs, let rhs):
             switch op {
             case .add:
@@ -1124,6 +1815,8 @@ public extension MathASTNode {
             return "pi"
         case .constant(.e):
             return "e"
+        case .constant(.phi):
+            return "phi"
         case .variable(let name):
             return String(name)
         case .negate(let inner):
@@ -1132,6 +1825,12 @@ public extension MathASTNode {
             return parentPrecedence > 2 ? "(\(raw))" : raw
         case .call(let fn, let arg):
             return "\(fn.rawValue)(\(arg.renderPlain(parentPrecedence: 0)))"
+        case .multiCall(let fn, let args):
+            if fn == .logBase, args.count == 2 {
+                return "log(\(args[0].renderPlain(parentPrecedence: 0)), \(args[1].renderPlain(parentPrecedence: 0)))"
+            }
+            let rendered = args.map { $0.renderPlain(parentPrecedence: 0) }.joined(separator: ", ")
+            return "\(fn.rawValue)(\(rendered))"
         case .binary(let op, let lhs, let rhs):
             switch op {
             case .add:

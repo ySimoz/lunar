@@ -67,11 +67,25 @@ jobs:
             build/release/Lunar-*.zip
             build/release/Lunar-*.zip.sha256
 
+      - name: Extract changelog section
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          awk -v ver="${{ steps.version.outputs.app_version }}" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+          if [[ ! -s release_notes.md ]]; then
+            echo "Lunar v${{ steps.version.outputs.app_version }}" > release_notes.md
+          fi
+
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           name: Lunar ${{ github.ref_name }}
+          body_path: release_notes.md
           generate_release_notes: true
           files: |
             build/release/Lunar-${{ steps.version.outputs.app_version }}-macos.zip

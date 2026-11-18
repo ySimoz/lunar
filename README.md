@@ -18,7 +18,8 @@ Lunar is a macOS-first workspace for studying with flashcards and math. Organize
 - **Daily Review (`Today` & `SM-2`):** Tracks what is due today, restores interrupted sessions on relaunch, and schedules reviews (`Again`, `Hard`, `Good`, `Easy`) locally.
 - **Chapters, Filters & Drag Order:** Group cards into chapters, filter by `Definition`, `Theorem`, `Example`, difficulty, or `Due only`, and drag decks or cards in `Custom Order`.
 - **Gauntlet & Analytics:** Practice mixed drills across decks without altering SM-2 intervals, and review weak cards under `Low Ease` and 7/30/90-day charts.
-- **2D Grapher, CAS & Focus Timer:** Plot explicit and implicit equations (`y = sin(x) * cos(x / 2)`, `x^2 + y^2 = 9`) with numbered axes and scroll-wheel zoom, run `diff` / `integrate` / `solve`, and toggle a menu-bar Pomodoro timer.
+- **2D Grapher, CAS & Focus Timer:** Plot explicit, implicit, and inequality equations with live parameter sliders, `{...}` domain restrictions, root/intersection snapping, `ƒx` symbol palette, crop-to-PNG/JPEG export, `diff` / `integrate` / `solve` CAS tools, and a menu-bar Pomodoro timer.
+- **Study Undo & Full Backups:** Press `⌘Z` to revert ratings mid-session, paste interleaved images into cards, and back up/restore full SQLite `.db` snapshots or import Anki `.apkg` decks.
 
 <details>
 <summary>More views: Today hub, Library grid, and 2D Grapher</summary>
@@ -41,9 +42,9 @@ Lunar is a macOS-first workspace for studying with flashcards and math. Organize
 
 ## Install & First Run
 
-### Option 1 — Download `v0.1.0`
+### Option 1 — Download `v0.1.1`
 
-Grab `Lunar-0.1.0-macos.zip` from [GitHub Releases](https://github.com/ySimoz/lunar/releases/tag/v0.1.0), unzip it, and move `Lunar.app` to Applications.
+Grab `Lunar-0.1.1-macos.zip` from [GitHub Releases](https://github.com/ySimoz/lunar/releases/latest), unzip it, and move `Lunar.app` to Applications. See [CHANGELOG.md](CHANGELOG.md) for everything new.
 
 > [!NOTE]
 > Release bundles are currently ad-hoc signed. On first launch, right-click `Lunar.app` -> **Open** (or clear quarantine if macOS prompts for an unidentified developer).
