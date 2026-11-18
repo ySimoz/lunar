@@ -349,6 +349,24 @@ public final class LibraryViewModel {
     }
 
     @discardableResult
+    public func createCard(_ card: Flashcard) async -> Flashcard? {
+        guard let client else { return nil }
+        do {
+            let created = try await client.createCard(card)
+            var existing = cardsByDeck[created.deckId] ?? []
+            existing.append(created)
+            existing.sort { $0.order < $1.order }
+            cardsByDeck[created.deckId] = existing
+            await refreshDecks()
+            errorMessage = nil
+            return created
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    @discardableResult
     public func createDeck(
         title: String,
         description: String,

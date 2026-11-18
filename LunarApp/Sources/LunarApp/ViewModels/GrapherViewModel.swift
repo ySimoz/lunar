@@ -55,13 +55,56 @@ public struct CASHistoryEntry: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Editable scalar parameter definition (`a`, `b`, `k`, ...) discovered in plotted equations.
+public struct GraphParameter: Identifiable, Equatable, Sendable {
+    public let name: Character
+    public var value: Double
+    public var min: Double
+    public var max: Double
+    public var step: Double
+
+    public var id: Character { name }
+
+    public init(
+        name: Character,
+        value: Double = 1.0,
+        min: Double = -10.0,
+        max: Double = 10.0,
+        step: Double = 0.1
+    ) {
+        self.name = name
+        let safeMin = min.isFinite ? min : -10.0
+        let safeMax = (max.isFinite && max > safeMin) ? max : safeMin + 20.0
+        self.min = safeMin
+        self.max = safeMax
+        self.step = (step.isFinite && step > 0) ? step : 0.1
+        let safeVal = value.isFinite ? value : 1.0
+        self.value = Swift.min(safeMax, Swift.max(safeMin, safeVal))
+    }
+
+    public var validatedRange: ClosedRange<Double> {
+        let upper = max > min ? max : min + 1.0
+        return min...upper
+    }
+
+    public var validatedStep: Double {
+        let span = validatedRange.upperBound - validatedRange.lowerBound
+        let candidate = (step.isFinite && step > 0) ? step : 0.1
+        return Swift.min(candidate, span)
+    }
+}
+
 /// Session-scoped state for Tools (`Focus Timer` | `2D Grapher`),
 /// starting empty on each fresh app launch while preserving equations, viewport, and CAS history across tab switches.
 @Observable
 @MainActor
 public final class GrapherViewModel {
     public var activeToolTab: ToolsTab = .focusTimer
-    public var equations: [EquationEntry] = []
+    public var equations: [EquationEntry] = [] {
+        didSet { syncParametersFromEquations() }
+    }
+    public var parameters: [GraphParameter] = []
+    public var selectedKeyPointID: String?
     public var centerX: Double = 0
     public var centerY: Double = 0
     public var halfWidth: Double = 8.0
@@ -72,6 +115,105 @@ public final class GrapherViewModel {
     public var nextCASIndex: Int = 1
 
     public init() {}
+
+    public var parameterEnvironment: [Character: Double] {
+        Dictionary(uniqueKeysWithValues: parameters.map { ($0.name, $0.value) })
+    }
+
+    public func syncParametersFromEquations() {
+        var orderedNames: [Character] = []
+        var seen = Set<Character>()
+        for entry in equations {
+            for name in MathExpressionEvaluator.extractFreeParameters(from: entry.expression) {
+                if seen.insert(name).inserted {
+                    orderedNames.append(name)
+                }
+            }
+        }
+
+        if parameters.map(\.name) == orderedNames {
+            return
+        }
+
+        let existingByName = Dictionary(uniqueKeysWithValues: parameters.map { ($0.name, $0) })
+        parameters = orderedNames.map { name in
+            existingByName[name] ?? GraphParameter(name: name)
+        }
+    }
+
+    public func setParameterValue(name: Character, value: Double) {
+        guard let idx = parameters.firstIndex(where: { $0.name == name }), value.isFinite else { return }
+        let range = parameters[idx].validatedRange
+        parameters[idx].value = Swift.min(range.upperBound, Swift.max(range.lowerBound, value))
+    }
+
+    public func updateParameterBounds(name: Character, min: Double, max: Double, step: Double) {
+        guard let idx = parameters.firstIndex(where: { $0.name == name }) else { return }
+        let safeMin = min.isFinite ? min : -10.0
+        let safeMax = (max.isFinite && max > safeMin) ? max : safeMin + 1.0
+        let safeStep = (step.isFinite && step > 0) ? step : 0.1
+        parameters[idx].min = safeMin
+        parameters[idx].max = safeMax
+        parameters[idx].step = safeStep
+        parameters[idx].value = Swift.min(safeMax, Swift.max(safeMin, parameters[idx].value))
+    }
+
+    public func resetParameter(name: Character) {
+        guard let idx = parameters.firstIndex(where: { $0.name == name }) else { return }
+        parameters[idx] = GraphParameter(name: name)
+    }
+
+    public func viewportRanges(aspect: Double = 0.7) -> (xRange: ClosedRange<Double>, yRange: ClosedRange<Double>) {
+        let safeAspect = (aspect.isFinite && aspect > 0.05) ? aspect : 0.7
+        let xRange = (centerX - halfWidth)...(centerX + halfWidth)
+        let halfHeight = halfWidth * safeAspect
+        let yRange = (centerY - halfHeight)...(centerY + halfHeight)
+        return (xRange, yRange)
+    }
+
+    public func visibleKeyPoints(aspect: Double = 0.7) -> [GraphKeyPoint] {
+        let (xRange, yRange) = viewportRanges(aspect: aspect)
+        let visible = equations
+            .filter(\.isVisible)
+            .map { (id: $0.id, expression: $0.expression) }
+        return GraphFeatureSolver.findKeyPoints(
+            equations: visible,
+            parameters: parameterEnvironment,
+            xRange: xRange,
+            yRange: yRange
+        )
+    }
+
+    public func nearestKeyPoint(
+        toWorldX wx: Double,
+        worldY wy: Double,
+        aspect: Double = 0.7,
+        maxNormalizedDistance: Double = 0.032,
+        from keyPoints: [GraphKeyPoint]? = nil
+    ) -> GraphKeyPoint? {
+        let (xRange, yRange) = viewportRanges(aspect: aspect)
+        let xSpan = max(1e-9, xRange.upperBound - xRange.lowerBound)
+        let ySpan = max(1e-9, yRange.upperBound - yRange.lowerBound)
+        let points = keyPoints ?? visibleKeyPoints(aspect: aspect)
+
+        var bestPoint: GraphKeyPoint?
+        var bestDist = maxNormalizedDistance
+
+        for pt in points {
+            let dx = (pt.x - wx) / xSpan
+            let dy = (pt.y - wy) / ySpan
+            let dist = hypot(dx, dy)
+            if dist < bestDist - 1e-6 {
+                bestDist = dist
+                bestPoint = pt
+            } else if abs(dist - bestDist) <= 1e-6,
+                      let currentBest = bestPoint,
+                      pt.kind.snapPriority > currentBest.kind.snapPriority {
+                bestPoint = pt
+            }
+        }
+        return bestPoint
+    }
 
     public func addEmptyEquation() {
         let nextColor = (equations.map(\.colorIndex).max() ?? -1) + 1

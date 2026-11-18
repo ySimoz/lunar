@@ -109,6 +109,7 @@ public enum MathParser {
 
         enum SlotPayload {
             case codeBlock(html: String)
+            case image(html: String)
             case math(index: Int, displayMode: Bool)
         }
 
@@ -133,6 +134,23 @@ public enum MathParser {
             let token = makeToken(slots.count)
             let html = "<pre class=\"lunar-code-block\"><code>\(escaped)</code></pre>"
             slots.append((token, .codeBlock(html: html)))
+            return token
+        }
+
+        // 1b. Safe inline base64 data-URI images ![alt](data:image/(png|jpeg|webp);base64,...)
+        working = replacingMatches(
+            in: working,
+            pattern: #"!\[([^\]]*)\]\((data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+)\)"#,
+            options: []
+        ) { match, ns in
+            let altRange = match.range(at: 1)
+            let srcRange = match.range(at: 2)
+            let altText = altRange.location != NSNotFound ? ns.substring(with: altRange) : ""
+            let srcText = srcRange.location != NSNotFound ? ns.substring(with: srcRange) : ""
+            let escapedAlt = escapeHTML(altText)
+            let token = makeToken(slots.count)
+            let html = "<div class=\"lunar-image-wrap\"><img class=\"lunar-markdown-image\" src=\"\(srcText)\" alt=\"\(escapedAlt)\" /></div>"
+            slots.append((token, .image(html: html)))
             return token
         }
 
@@ -225,7 +243,7 @@ public enum MathParser {
 
         let blockSlotTokens = Set(slots.compactMap { entry -> String? in
             switch entry.payload {
-            case .codeBlock:
+            case .codeBlock, .image:
                 return entry.token
             case .math(_, let displayMode):
                 return displayMode ? entry.token : nil
@@ -299,7 +317,7 @@ public enum MathParser {
         for (token, payload) in slots {
             let replacement: String
             switch payload {
-            case .codeBlock(let html):
+            case .codeBlock(let html), .image(let html):
                 replacement = html
             case .math(let index, let displayMode):
                 if displayMode {
@@ -556,6 +574,14 @@ public enum MathParser {
         .katex-display { margin: 4px 0; overflow-x: auto; overflow-y: hidden; }
         p { margin: 4px 0; }
         .lunar-math-display { margin: 8px 0; text-align: center; overflow-x: auto; }
+        .lunar-image-wrap { margin: 8px 0; }
+        .lunar-markdown-image {
+          display: block;
+          max-width: 100%;
+          height: auto;
+          border-radius: 8px;
+          border: 1px solid var(--lunar-border);
+        }
         .lunar-spacer { height: 8px; }
         body.lunar-compact p, body.lunar-compact .lunar-block-line { margin: 0; }
         body.lunar-compact .lunar-math-display { margin: 2px 0; text-align: left; }
@@ -650,6 +676,11 @@ public enum MathParser {
             }
 
             reportHeight();
+            root.querySelectorAll('img.lunar-markdown-image').forEach(function(img) {
+              if (!img.complete) {
+                img.addEventListener('load', reportHeight, { once: true });
+              }
+            });
             if (typeof requestAnimationFrame === 'function') {
               requestAnimationFrame(reportHeight);
             }

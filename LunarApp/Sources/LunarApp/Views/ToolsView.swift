@@ -4,13 +4,16 @@ import SwiftUI
 public struct ToolsView: View {
     @Bindable var pomodoroVM: PomodoroViewModel
     @Bindable var grapherVM: GrapherViewModel
+    var libraryVM: LibraryViewModel?
 
     public init(
         pomodoroVM: PomodoroViewModel,
-        grapherVM: GrapherViewModel
+        grapherVM: GrapherViewModel,
+        libraryVM: LibraryViewModel? = nil
     ) {
         self.pomodoroVM = pomodoroVM
         self.grapherVM = grapherVM
+        self.libraryVM = libraryVM
     }
 
     public var body: some View {
@@ -30,7 +33,7 @@ public struct ToolsView: View {
             case .focusTimer:
                 PomodoroView(pomodoroVM: pomodoroVM)
             case .grapher:
-                GrapherView(grapherVM: grapherVM)
+                GrapherView(grapherVM: grapherVM, libraryVM: libraryVM)
             }
         }
         .navigationTitle("Tools")
