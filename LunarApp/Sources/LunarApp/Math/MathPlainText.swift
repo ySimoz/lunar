@@ -192,7 +192,8 @@ public enum MathPlainText {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
 
-        let chars = Array(trimmed)
+        let strippedImages = stripDataURIImages(trimmed)
+        let chars = Array(strippedImages)
         var formatted = parse(chars, start: 0, end: chars.count)
         formatted = formatted
             .replacingOccurrences(of: "**", with: "")
@@ -202,6 +203,30 @@ public enum MathPlainText {
         let components = formatted.components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
         return components.joined(separator: " ")
+    }
+
+    private static func stripDataURIImages(_ text: String) -> String {
+        guard text.contains("data:image/"),
+              let regex = try? NSRegularExpression(
+                  pattern: #"!\[([^\]]*)\]\(data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+\)"#,
+                  options: []
+              ) else {
+            return text
+        }
+        let ns = text as NSString
+        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return text }
+
+        let mutable = NSMutableString(string: text)
+        for match in matches.reversed() {
+            let altRange = match.range(at: 1)
+            let alt = altRange.location != NSNotFound
+                ? ns.substring(with: altRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                : ""
+            let label = alt.isEmpty ? "[Graph]" : "[\(alt)]"
+            mutable.replaceCharacters(in: match.range, with: label)
+        }
+        return mutable as String
     }
 
     private static func parse(_ chars: [Character], start: Int, end: Int) -> String {

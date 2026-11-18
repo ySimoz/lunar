@@ -29,11 +29,13 @@ public struct CardEditorSheet: View {
     }
 
     public let deck: Deck
+    public let availableDecks: [Deck]
     public let existingCard: Flashcard?
     public let fontFamily: String
     public let fontSize: String
     public let onSave: (Flashcard) -> Void
 
+    @State private var selectedDeckId: String
     @State private var topic: String
     @State private var cardType: CardType
     @State private var difficulty: Difficulty
@@ -52,26 +54,38 @@ public struct CardEditorSheet: View {
 
     public init(
         deck: Deck,
+        availableDecks: [Deck] = [],
         existingCard: Flashcard? = nil,
         initialTopic: String? = nil,
+        initialCardType: CardType? = nil,
+        initialFront: String = "",
+        initialBack: String = "",
+        initialExplanation: String = "",
+        initialTags: [String] = [],
         fontFamily: String = "serif",
         fontSize: String = "base",
         onSave: @escaping (Flashcard) -> Void
     ) {
         self.deck = deck
+        self.availableDecks = availableDecks.isEmpty ? [deck] : availableDecks
         self.existingCard = existingCard
         self.fontFamily = fontFamily
         self.fontSize = fontSize
         self.onSave = onSave
 
+        _selectedDeckId = State(initialValue: existingCard?.deckId ?? deck.id)
         _topic = State(initialValue: existingCard?.topic ?? initialTopic ?? deck.chapters.first ?? "")
-        _cardType = State(initialValue: existingCard?.cardType ?? .definition)
+        _cardType = State(initialValue: existingCard?.cardType ?? initialCardType ?? .definition)
         _difficulty = State(initialValue: existingCard?.difficulty ?? deck.difficulty)
-        _front = State(initialValue: existingCard?.front ?? "")
-        _back = State(initialValue: existingCard?.back ?? "")
+        _front = State(initialValue: existingCard?.front ?? initialFront)
+        _back = State(initialValue: existingCard?.back ?? initialBack)
         _layers = State(initialValue: existingCard?.layers ?? [])
-        _explanation = State(initialValue: existingCard?.explanation ?? "")
-        _tagsText = State(initialValue: (existingCard?.tags ?? []).joined(separator: ", "))
+        _explanation = State(initialValue: existingCard?.explanation ?? initialExplanation)
+        _tagsText = State(initialValue: (existingCard?.tags ?? initialTags).joined(separator: ", "))
+    }
+
+    private var activeDeck: Deck {
+        availableDecks.first(where: { $0.id == selectedDeckId }) ?? deck
     }
 
     private var canSave: Bool {
@@ -203,6 +217,23 @@ public struct CardEditorSheet: View {
 
     private var formPane: some View {
         VStack(alignment: .leading, spacing: LunarTokens.space4) {
+            if availableDecks.count > 1 && existingCard == nil {
+                VStack(alignment: .leading, spacing: LunarTokens.space1) {
+                    Text("Deck")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    LunarMenuPicker(
+                        selection: $selectedDeckId,
+                        options: availableDecks.map { ($0.id, $0.title) }
+                    )
+                    .onChange(of: selectedDeckId) { _, _ in
+                        if !activeDeck.chapters.contains(topic) {
+                            topic = activeDeck.chapters.first ?? ""
+                        }
+                    }
+                }
+            }
+
             // Compact horizontal Classification row
             HStack(alignment: .bottom, spacing: LunarTokens.space3) {
                 VStack(alignment: .leading, spacing: LunarTokens.space1) {
@@ -215,11 +246,11 @@ public struct CardEditorSheet: View {
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 12))
 
-                        if !deck.chapters.isEmpty {
+                        if !activeDeck.chapters.isEmpty {
                             Menu {
                                 Button("General") { topic = "" }
                                 Divider()
-                                ForEach(deck.chapters, id: \.self) { chapter in
+                                ForEach(activeDeck.chapters, id: \.self) { chapter in
                                     Button(chapter) { topic = chapter }
                                 }
                             } label: {
@@ -527,10 +558,13 @@ public struct CardEditorSheet: View {
     private func commit() {
         guard canSave else { return }
         var draft = existingCard ?? Flashcard(
-            deckId: deck.id,
+            deckId: activeDeck.id,
             front: front,
             back: back
         )
+        if existingCard == nil {
+            draft.deckId = activeDeck.id
+        }
         draft.topic = topic.trimmingCharacters(in: .whitespacesAndNewlines)
         draft.cardType = cardType
         draft.difficulty = difficulty

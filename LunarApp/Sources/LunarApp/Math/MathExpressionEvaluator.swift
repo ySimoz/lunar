@@ -87,6 +87,10 @@ public indirect enum MathASTNode: Sendable, Equatable {
     }
 
     public func evaluate(x: Double, y: Double) -> Double {
+        evaluate(x: x, y: y, parameters: [:])
+    }
+
+    public func evaluate(x: Double, y: Double, parameters: [Character: Double]) -> Double {
         switch self {
         case .number(let v):
             return v
@@ -95,12 +99,12 @@ public indirect enum MathASTNode: Sendable, Equatable {
         case .variable(let name):
             if name == "y" { return y }
             if name == "x" { return x }
-            return 0
+            return parameters[name] ?? 0
         case .negate(let inner):
-            return -inner.evaluate(x: x, y: y)
+            return -inner.evaluate(x: x, y: y, parameters: parameters)
         case .binary(let op, let lhs, let rhs):
-            let l = lhs.evaluate(x: x, y: y)
-            let r = rhs.evaluate(x: x, y: y)
+            let l = lhs.evaluate(x: x, y: y, parameters: parameters)
+            let r = rhs.evaluate(x: x, y: y, parameters: parameters)
             switch op {
             case .add: return l + r
             case .subtract: return l - r
@@ -109,7 +113,7 @@ public indirect enum MathASTNode: Sendable, Equatable {
             case .power: return pow(l, r)
             }
         case .call(let fn, let arg):
-            return Self.evaluateCall(fn, value: arg.evaluate(x: x, y: y))
+            return Self.evaluateCall(fn, value: arg.evaluate(x: x, y: y, parameters: parameters))
         }
     }
 
@@ -172,11 +176,46 @@ public indirect enum MathASTNode: Sendable, Equatable {
     public func dependsOn(_ variable: Character) -> Bool {
         freeVariables.contains(variable)
     }
+
+    public var orderedVariables: [Character] {
+        var seen = Set<Character>()
+        var ordered: [Character] = []
+        func walk(_ node: MathASTNode) {
+            switch node {
+            case .number, .constant:
+                break
+            case .variable(let ch):
+                if seen.insert(ch).inserted {
+                    ordered.append(ch)
+                }
+            case .negate(let inner):
+                walk(inner)
+            case .binary(_, let lhs, let rhs):
+                walk(lhs)
+                walk(rhs)
+            case .call(_, let arg):
+                walk(arg)
+            }
+        }
+        walk(self)
+        return ordered
+    }
 }
 
 /// Recursive-descent math expression parser and evaluator supporting `+ - * / ^`,
 /// standard elementary functions, constants (`pi`, `e`), and implicit multiplication.
 public enum MathExpressionEvaluator {
+    public static let reservedIndependentVariables: Set<Character> = ["x", "y", "t", "r"]
+
+    public static let allowedParameterCharacters: Set<Character> = {
+        let letters = "abcdefghijklmnopqrstuvwxyz"
+        return Set(letters).subtracting(["e"]).subtracting(reservedIndependentVariables)
+    }()
+
+    public static let defaultGraphAllowedVariables: Set<Character> = {
+        Set<Character>(["x", "y"]).union(allowedParameterCharacters)
+    }()
+
     private enum Token: Equatable {
         case number(Double)
         case identifier(String)
@@ -200,22 +239,74 @@ public enum MathExpressionEvaluator {
     }
 
     /// Parses either `LHS = RHS` (evaluating `F(x, y) = LHS - RHS`) or an explicit expression `f(x)` (`F(x, y) = y - f(x)`).
-    public static func compileEquation(_ raw: String) throws -> MathASTNode {
+    public static func compileEquation(
+        _ raw: String,
+        allowFreeParameters: Bool = true
+    ) throws -> MathASTNode {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw MathParseError.emptyExpression }
 
+        let allowed: Set<Character> = allowFreeParameters ? defaultGraphAllowedVariables : ["x", "y"]
         let parts = trimmed.components(separatedBy: "=")
         if parts.count > 2 {
             throw MathParseError.multipleEqualsSigns
         }
         if parts.count == 2 {
-            let lhs = try parseExpression(parts[0])
-            let rhs = try parseExpression(parts[1])
+            let lhs = try parseExpression(parts[0], allowedVariables: allowed)
+            let rhs = try parseExpression(parts[1], allowedVariables: allowed)
             return .binary(.subtract, lhs, rhs)
         } else {
-            let rhs = try parseExpression(parts[0])
+            let rhs = try parseExpression(parts[0], allowedVariables: allowed)
             return .binary(.subtract, .variable("y"), rhs)
         }
+    }
+
+    /// Parses an explicit `y = f(x)`, `f(x) = y`, or bare `f(x)` equation into `f(x)`, returning `nil` for implicit equations.
+    public static func parseExplicitFunction(
+        _ raw: String,
+        allowFreeParameters: Bool = true
+    ) -> MathASTNode? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let allowed: Set<Character> = allowFreeParameters ? defaultGraphAllowedVariables : ["x", "y"]
+        let parts = trimmed.components(separatedBy: "=")
+        guard parts.count <= 2 else { return nil }
+
+        if parts.count == 1 {
+            guard let rhs = try? parseExpression(parts[0], allowedVariables: allowed),
+                  !rhs.dependsOn("y") else {
+                return nil
+            }
+            return rhs
+        }
+
+        let lhsRaw = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let rhsRaw = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        if lhsRaw.lowercased() == "y" {
+            guard let rhs = try? parseExpression(rhsRaw, allowedVariables: allowed),
+                  !rhs.dependsOn("y") else {
+                return nil
+            }
+            return rhs
+        }
+        if rhsRaw.lowercased() == "y" {
+            guard let lhs = try? parseExpression(lhsRaw, allowedVariables: allowed),
+                  !lhs.dependsOn("y") else {
+                return nil
+            }
+            return lhs
+        }
+        return nil
+    }
+
+    /// Extracts ordered unbound single-letter scalar parameter names (`a`, `b`, `k`, ...) from a valid plotted equation,
+    /// excluding built-in constants (`e`, `pi`), independent variables (`x`, `y`, `t`, `r`, `theta`), and math functions.
+    public static func extractFreeParameters(from raw: String) -> [Character] {
+        guard let ast = try? compileEquation(raw, allowFreeParameters: true) else {
+            return []
+        }
+        return ast.orderedVariables.filter { allowedParameterCharacters.contains($0) }
     }
 
     private static func tokenize(_ raw: String, allowedVariables: Set<Character>) throws -> [Token] {
@@ -300,7 +391,7 @@ public enum MathExpressionEvaluator {
     }
 
     private static func isKnownWord(_ word: String, allowedVariables: Set<Character>) -> Bool {
-        if word == "pi" || word == "e" {
+        if word == "pi" || word == "e" || word == "theta" {
             return true
         }
         if word.count == 1, let ch = word.first, allowedVariables.contains(ch) {
@@ -475,7 +566,8 @@ public enum MarchingSquares {
         xRange: ClosedRange<Double>,
         yRange: ClosedRange<Double>,
         columns: Int = defaultColumns,
-        rows: Int = defaultRows
+        rows: Int = defaultRows,
+        parameters: [Character: Double] = [:]
     ) -> [ContourSegment] {
         guard columns > 0, rows > 0 else { return [] }
 
@@ -490,7 +582,7 @@ public enum MarchingSquares {
             let y = yRange.lowerBound + Double(r) * dy
             for c in 0...columns {
                 let x = xRange.lowerBound + Double(c) * dx
-                grid[r][c] = ast.evaluate(x: x, y: y)
+                grid[r][c] = ast.evaluate(x: x, y: y, parameters: parameters)
             }
         }
 
@@ -1417,8 +1509,8 @@ public extension MathExpressionEvaluator {
             if parts.count > 2 {
                 throw MathParseError.multipleEqualsSigns
             }
-            let lhs = try parseExpression(parts[0])
-            let rhs = try parseExpression(parts[1])
+            let lhs = try parseExpression(parts[0], allowedVariables: defaultGraphAllowedVariables)
+            let rhs = try parseExpression(parts[1], allowedVariables: defaultGraphAllowedVariables)
             _ = try compileEquation(trimmed)
             let latex = "\(lhs.toLaTeX()) = \(rhs.toLaTeX())"
             return CASCommandResult(

@@ -1,27 +1,30 @@
 import AppKit
 import SwiftUI
 
-/// Interactive `HSplitView` 2D math plotter with Marching Squares zero-contour rendering,
-/// muted gridlines with axis ticks/numbers, scroll-wheel zoom, pan, hover coordinate readout,
-/// and symbolic CAS console.
+/// Interactive `HSplitView` 2D math plotter with live parameter sliders,
+/// root & intersection snapping, Marching Squares zero-contour rendering,
+/// Graph-to-Card flashcard creation, and symbolic CAS console.
 public struct GrapherView: View {
     @Bindable var grapherVM: GrapherViewModel
+    var libraryVM: LibraryViewModel?
 
     @State private var hoverPoint: CGPoint?
     @State private var canvasSize: CGSize = .zero
     @State private var dragStartCenter: (x: Double, y: Double)?
     @State private var scrollMonitor: Any?
+    @State private var activeCardDraft: GraphCardDraft?
 
     @Environment(\.colorScheme) private var colorScheme
 
-    public init(grapherVM: GrapherViewModel) {
+    public init(grapherVM: GrapherViewModel, libraryVM: LibraryViewModel? = nil) {
         self.grapherVM = grapherVM
+        self.libraryVM = libraryVM
     }
 
     public var body: some View {
         HSplitView {
             equationSidebar
-                .frame(minWidth: 230, idealWidth: 265, maxWidth: 340)
+                .frame(minWidth: 245, idealWidth: 280, maxWidth: 360)
 
             VStack(spacing: 0) {
                 plotterPane
@@ -33,20 +36,47 @@ public struct GrapherView: View {
             }
             .frame(minWidth: 420)
         }
+        .sheet(item: $activeCardDraft) { draft in
+            if let decks = libraryVM?.decks, let firstDeck = decks.first {
+                let initialDeck = activeTargetDeck(from: decks) ?? firstDeck
+                CardEditorSheet(
+                    deck: initialDeck,
+                    availableDecks: decks,
+                    initialCardType: draft.cardType,
+                    initialFront: draft.front,
+                    initialBack: draft.back,
+                    initialExplanation: draft.explanation,
+                    initialTags: draft.tags,
+                    fontFamily: libraryVM?.preferences.fontFamily ?? "serif",
+                    fontSize: libraryVM?.preferences.fontSize ?? "base"
+                ) { createdCard in
+                    Task {
+                        _ = await libraryVM?.createCard(createdCard)
+                    }
+                }
+            }
+        }
     }
 
-    // MARK: - Equation List
+    private func activeTargetDeck(from decks: [Deck]) -> Deck? {
+        if case .deck(let selectedId) = libraryVM?.selection {
+            return decks.first { $0.id == selectedId }
+        }
+        return decks.first
+    }
+
+    // MARK: - Equation & Parameter Sidebar
 
     private var equationSidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Equations")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13, weight: .medium))
                 Spacer()
                 Button {
                     grapherVM.addEmptyEquation()
                 } label: {
-                    Label("Add Equation", systemImage: "plus")
+                    Label("Add equation", systemImage: "plus")
                         .font(.system(size: 12, weight: .medium))
                 }
                 .buttonStyle(.bordered)
@@ -56,20 +86,26 @@ public struct GrapherView: View {
             Divider()
 
             ScrollView {
-                if !grapherVM.equations.isEmpty {
-                    VStack(spacing: LunarTokens.space2) {
-                        ForEach($grapherVM.equations) { $entry in
-                            EquationRow(
-                                entry: $entry,
-                                curveColor: curveColor(for: entry.colorIndex),
-                                onDelete: {
-                                    grapherVM.removeEquation(id: entry.id)
-                                }
-                            )
+                VStack(alignment: .leading, spacing: LunarTokens.space3) {
+                    if !grapherVM.equations.isEmpty {
+                        VStack(spacing: LunarTokens.space2) {
+                            ForEach($grapherVM.equations) { $entry in
+                                EquationRow(
+                                    entry: $entry,
+                                    curveColor: curveColor(for: entry.colorIndex),
+                                    onDelete: {
+                                        grapherVM.removeEquation(id: entry.id)
+                                    }
+                                )
+                            }
                         }
                     }
-                    .padding(LunarTokens.space3)
+
+                    if !grapherVM.parameters.isEmpty {
+                        parameterSection
+                    }
                 }
+                .padding(LunarTokens.space3)
             }
         }
         .background {
@@ -80,47 +116,108 @@ public struct GrapherView: View {
         }
     }
 
+    private var parameterSection: some View {
+        VStack(alignment: .leading, spacing: LunarTokens.space2) {
+            HStack {
+                Text("Parameters")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.top, LunarTokens.space1)
+
+            ForEach(grapherVM.parameters) { param in
+                ParameterSliderRow(
+                    parameter: param,
+                    accentColor: LunarTokens.accent(for: colorScheme),
+                    onValueChange: { newValue in
+                        grapherVM.setParameterValue(name: param.name, value: newValue)
+                    },
+                    onBoundsChange: { minVal, maxVal, stepVal in
+                        grapherVM.updateParameterBounds(
+                            name: param.name,
+                            min: minVal,
+                            max: maxVal,
+                            step: stepVal
+                        )
+                    },
+                    onReset: {
+                        grapherVM.resetParameter(name: param.name)
+                    }
+                )
+            }
+        }
+    }
+
     // MARK: - 2D Canvas Plotter
 
+    private var currentAspect: Double {
+        canvasSize.width > 0 ? Double(canvasSize.height / canvasSize.width) : 0.7
+    }
+
+    private var canCreateCard: Bool {
+        let hasVisibleEquation = grapherVM.equations.contains {
+            $0.isVisible && !$0.expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let hasDecks = !(libraryVM?.decks.isEmpty ?? true)
+        return hasVisibleEquation && hasDecks
+    }
+
+    private var createCardHelpText: String {
+        if libraryVM?.decks.isEmpty ?? true {
+            return "Create a deck first to save graph flashcards"
+        }
+        if !grapherVM.equations.contains(where: { $0.isVisible && !$0.expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return "Plot an equation to create a flashcard"
+        }
+        return "Create flashcard from current graph"
+    }
+
     private var plotterPane: some View {
-        ZStack(alignment: .topTrailing) {
+        let aspect = currentAspect
+        let (xRange, yRange) = grapherVM.viewportRanges(aspect: aspect)
+        let keyPoints = grapherVM.visibleKeyPoints(aspect: aspect)
+        let hoveredWorld = hoverWorldCoordinates(xRange: xRange, yRange: yRange)
+        let snappedHoverPoint = hoveredWorld.flatMap { world in
+            grapherVM.nearestKeyPoint(
+                toWorldX: world.x,
+                worldY: world.y,
+                aspect: aspect,
+                from: keyPoints
+            )
+        }
+        let pinnedPoint = keyPoints.first { $0.id == grapherVM.selectedKeyPointID }
+        let highlightedPoint = snappedHoverPoint ?? pinnedPoint
+
+        return ZStack(alignment: .topTrailing) {
             GeometryReader { proxy in
                 let size = proxy.size
-                let aspect = size.width > 0 ? (size.height / size.width) : 0.7
-                let xRange = (grapherVM.centerX - grapherVM.halfWidth)...(grapherVM.centerX + grapherVM.halfWidth)
-                let halfHeight = grapherVM.halfWidth * Double(aspect)
-                let yRange = (grapherVM.centerY - halfHeight)...(grapherVM.centerY + halfHeight)
+                let paneAspect = size.width > 0 ? (size.height / size.width) : 0.7
+                let paneRanges = grapherVM.viewportRanges(aspect: paneAspect)
 
                 Canvas { context, canvas in
                     drawGridAndAxes(
                         in: &context,
                         size: canvas,
-                        xRange: xRange,
-                        yRange: yRange
+                        xRange: paneRanges.xRange,
+                        yRange: paneRanges.yRange
                     )
 
-                    for entry in grapherVM.equations where entry.isVisible {
-                        guard let ast = try? MathExpressionEvaluator.compileEquation(entry.expression) else {
-                            continue
-                        }
-                        let segments = MarchingSquares.extractSegments(
-                            ast: ast,
-                            xRange: xRange,
-                            yRange: yRange
-                        )
-                        var path = Path()
-                        for seg in segments {
-                            let p1 = worldToScreen(x: seg.x1, y: seg.y1, size: canvas, xRange: xRange, yRange: yRange)
-                            let p2 = worldToScreen(x: seg.x2, y: seg.y2, size: canvas, xRange: xRange, yRange: yRange)
-                            path.move(to: p1)
-                            path.addLine(to: p2)
-                        }
-                        context.stroke(
-                            path,
-                            with: .color(curveColor(for: entry.colorIndex)),
-                            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
-                        )
-                    }
+                    drawPlottedCurves(
+                        in: &context,
+                        size: canvas,
+                        xRange: paneRanges.xRange,
+                        yRange: paneRanges.yRange
+                    )
+
+                    drawKeyPointMarkers(
+                        in: &context,
+                        size: canvas,
+                        xRange: paneRanges.xRange,
+                        yRange: paneRanges.yRange,
+                        keyPoints: keyPoints,
+                        highlightedPoint: highlightedPoint
+                    )
                 }
                 .background(colorScheme == .dark ? Color(white: 0.08) : Color(white: 0.97))
                 .onAppear { canvasSize = size }
@@ -133,13 +230,24 @@ public struct GrapherView: View {
                         hoverPoint = nil
                     }
                 }
+                .onTapGesture(count: 1, coordinateSpace: .local) { location in
+                    handleCanvasTap(
+                        at: location,
+                        size: size,
+                        xRange: paneRanges.xRange,
+                        yRange: paneRanges.yRange,
+                        aspect: paneAspect,
+                        keyPoints: keyPoints
+                    )
+                }
                 .gesture(
-                    DragGesture()
+                    DragGesture(minimumDistance: 4)
                         .onChanged { value in
                             if dragStartCenter == nil {
                                 dragStartCenter = (grapherVM.centerX, grapherVM.centerY)
                             }
                             guard let start = dragStartCenter, size.width > 0, size.height > 0 else { return }
+                            let halfHeight = grapherVM.halfWidth * paneAspect
                             let worldPerPixelX = (2.0 * grapherVM.halfWidth) / Double(size.width)
                             let worldPerPixelY = (2.0 * halfHeight) / Double(size.height)
                             grapherVM.centerX = start.x - Double(value.translation.width) * worldPerPixelX
@@ -157,58 +265,173 @@ public struct GrapherView: View {
                 }
             }
 
-            VStack(alignment: .trailing, spacing: LunarTokens.space2) {
-                HStack(spacing: 4) {
-                    Button {
-                        let aspect = canvasSize.width > 0 ? Double(canvasSize.height / canvasSize.width) : 0.7
-                        grapherVM.zoom(scaleFactor: 0.75, aspect: aspect)
-                    } label: {
-                        Image(systemName: "plus.magnifyingglass")
-                    }
-                    .help("Zoom In")
-
-                    Button {
-                        let aspect = canvasSize.width > 0 ? Double(canvasSize.height / canvasSize.width) : 0.7
-                        grapherVM.zoom(scaleFactor: 1.0 / 0.75, aspect: aspect)
-                    } label: {
-                        Image(systemName: "minus.magnifyingglass")
-                    }
-                    .help("Zoom Out")
-
-                    Button("Reset") {
-                        grapherVM.resetViewport()
-                    }
+            GrapherHUD(
+                canCreateCard: canCreateCard,
+                createCardHelpText: createCardHelpText,
+                highlightedPoint: highlightedPoint,
+                hoveredWorld: hoveredWorld,
+                onZoomIn: {
+                    grapherVM.zoom(scaleFactor: 0.75, aspect: currentAspect)
+                },
+                onZoomOut: {
+                    grapherVM.zoom(scaleFactor: 1.0 / 0.75, aspect: currentAspect)
+                },
+                onReset: {
+                    grapherVM.selectedKeyPointID = nil
+                    grapherVM.resetViewport()
+                },
+                onCreateCard: {
+                    openCardCreator(xRange: xRange, yRange: yRange, keyPoints: keyPoints)
                 }
-                .buttonStyle(.bordered)
-                .padding(LunarTokens.space2)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: LunarTokens.controlRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: LunarTokens.controlRadius, style: .continuous)
-                        .strokeBorder(LunarTokens.hairlineBorder(), lineWidth: 1)
-                }
-
-                if let hover = hoverPoint, canvasSize.width > 0, canvasSize.height > 0 {
-                    let aspect = Double(canvasSize.height / canvasSize.width)
-                    let xRange = (grapherVM.centerX - grapherVM.halfWidth)...(grapherVM.centerX + grapherVM.halfWidth)
-                    let halfHeight = grapherVM.halfWidth * aspect
-                    let yRange = (grapherVM.centerY - halfHeight)...(grapherVM.centerY + halfHeight)
-                    let wx = xRange.lowerBound + (Double(hover.x) / Double(canvasSize.width)) * (xRange.upperBound - xRange.lowerBound)
-                    let wy = yRange.upperBound - (Double(hover.y) / Double(canvasSize.height)) * (yRange.upperBound - yRange.lowerBound)
-
-                    Text(String(format: "(%.2f, %.2f)", wx, wy))
-                        .font(.system(size: 11, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, LunarTokens.space2)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(LunarTokens.hairlineBorder(), lineWidth: 1)
-                        }
-                }
-            }
+            )
             .padding(LunarTokens.space4)
+        }
+    }
+
+    private func hoverWorldCoordinates(
+        xRange: ClosedRange<Double>,
+        yRange: ClosedRange<Double>
+    ) -> (x: Double, y: Double)? {
+        guard let hover = hoverPoint, canvasSize.width > 0, canvasSize.height > 0 else {
+            return nil
+        }
+        let wx = xRange.lowerBound + (Double(hover.x) / Double(canvasSize.width)) * (xRange.upperBound - xRange.lowerBound)
+        let wy = yRange.upperBound - (Double(hover.y) / Double(canvasSize.height)) * (yRange.upperBound - yRange.lowerBound)
+        return (wx, wy)
+    }
+
+    private func handleCanvasTap(
+        at location: CGPoint,
+        size: CGSize,
+        xRange: ClosedRange<Double>,
+        yRange: ClosedRange<Double>,
+        aspect: Double,
+        keyPoints: [GraphKeyPoint]
+    ) {
+        guard size.width > 0, size.height > 0 else { return }
+        let wx = xRange.lowerBound + (Double(location.x) / Double(size.width)) * (xRange.upperBound - xRange.lowerBound)
+        let wy = yRange.upperBound - (Double(location.y) / Double(size.height)) * (yRange.upperBound - yRange.lowerBound)
+        if let hit = grapherVM.nearestKeyPoint(
+            toWorldX: wx,
+            worldY: wy,
+            aspect: aspect,
+            from: keyPoints
+        ) {
+            grapherVM.selectedKeyPointID = (grapherVM.selectedKeyPointID == hit.id) ? nil : hit.id
+        } else {
+            grapherVM.selectedKeyPointID = nil
+        }
+    }
+
+    private func openCardCreator(
+        xRange: ClosedRange<Double>,
+        yRange: ClosedRange<Double>,
+        keyPoints: [GraphKeyPoint]
+    ) {
+        guard let draft = GraphCardDraftBuilder.build(
+            equations: grapherVM.equations,
+            parameters: grapherVM.parameters,
+            xRange: xRange,
+            yRange: yRange,
+            keyPoints: keyPoints,
+            isDark: colorScheme == .dark
+        ) else {
+            return
+        }
+        activeCardDraft = draft
+    }
+
+    private func drawPlottedCurves(
+        in context: inout GraphicsContext,
+        size: CGSize,
+        xRange: ClosedRange<Double>,
+        yRange: ClosedRange<Double>
+    ) {
+        let paramEnv = grapherVM.parameterEnvironment
+        for entry in grapherVM.equations where entry.isVisible {
+            guard let ast = try? MathExpressionEvaluator.compileEquation(entry.expression, allowFreeParameters: true) else {
+                continue
+            }
+            let segments = MarchingSquares.extractSegments(
+                ast: ast,
+                xRange: xRange,
+                yRange: yRange,
+                parameters: paramEnv
+            )
+            var path = Path()
+            for seg in segments {
+                let p1 = worldToScreen(x: seg.x1, y: seg.y1, size: size, xRange: xRange, yRange: yRange)
+                let p2 = worldToScreen(x: seg.x2, y: seg.y2, size: size, xRange: xRange, yRange: yRange)
+                path.move(to: p1)
+                path.addLine(to: p2)
+            }
+            context.stroke(
+                path,
+                with: .color(curveColor(for: entry.colorIndex)),
+                style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+            )
+        }
+    }
+
+    private func drawKeyPointMarkers(
+        in context: inout GraphicsContext,
+        size: CGSize,
+        xRange: ClosedRange<Double>,
+        yRange: ClosedRange<Double>,
+        keyPoints: [GraphKeyPoint],
+        highlightedPoint: GraphKeyPoint?
+    ) {
+        let canvasBg = colorScheme == .dark ? Color(white: 0.08) : Color(white: 0.97)
+        let markerInk = LunarTokens.accent(for: colorScheme)
+
+        // Draw intercepts first, intersections on top
+        let ordered = keyPoints.sorted { $0.kind.snapPriority < $1.kind.snapPriority }
+        for point in ordered {
+            let screen = worldToScreen(x: point.x, y: point.y, size: size, xRange: xRange, yRange: yRange)
+            guard screen.x >= -6, screen.x <= size.width + 6,
+                  screen.y >= -6, screen.y <= size.height + 6 else {
+                continue
+            }
+
+            let isActive = (point.id == highlightedPoint?.id)
+            let radius: CGFloat = (point.kind == .intersection) ? 4.0 : 3.5
+            let rect = CGRect(
+                x: screen.x - radius,
+                y: screen.y - radius,
+                width: radius * 2,
+                height: radius * 2
+            )
+            let circle = Path(ellipseIn: rect)
+
+            if point.kind == .intersection {
+                context.fill(circle, with: .color(markerInk.opacity(isActive ? 1.0 : 0.85)))
+                context.stroke(circle, with: .color(canvasBg), lineWidth: 1.5)
+            } else {
+                context.fill(circle, with: .color(canvasBg))
+                context.stroke(circle, with: .color(markerInk.opacity(isActive ? 1.0 : 0.72)), lineWidth: 1.5)
+            }
+
+            if isActive {
+                let haloRadius = radius + 4.0
+                let haloRect = CGRect(
+                    x: screen.x - haloRadius,
+                    y: screen.y - haloRadius,
+                    width: haloRadius * 2,
+                    height: haloRadius * 2
+                )
+                context.stroke(
+                    Path(ellipseIn: haloRect),
+                    with: .color(markerInk.opacity(0.65)),
+                    lineWidth: 1.25
+                )
+
+                let coordLabel = Text(GraphFeatureSolver.formatPoint(x: point.x, y: point.y))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(markerInk)
+                let labelY = max(14, screen.y - 14)
+                let labelX = min(max(44, screen.x), size.width - 44)
+                context.draw(coordLabel, at: CGPoint(x: labelX, y: labelY), anchor: .center)
+            }
         }
     }
 
@@ -219,7 +442,7 @@ public struct GrapherView: View {
             if grapherVM.isConsoleExpanded && !grapherVM.casHistory.isEmpty {
                 HStack(spacing: LunarTokens.space2) {
                     Text("Console")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
 
                     Text("\(grapherVM.casHistory.count)")
@@ -246,16 +469,16 @@ public struct GrapherView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
-                    .help("Collapse Console")
+                    .help("Collapse console")
                 }
                 .padding(.horizontal, LunarTokens.space4)
                 .padding(.vertical, LunarTokens.space2)
                 .background {
-            ZStack {
-                Rectangle().fill(.regularMaterial)
-                Rectangle().fill(Color(nsColor: .windowBackgroundColor).opacity(0.55))
-            }
-        }
+                    ZStack {
+                        Rectangle().fill(.regularMaterial)
+                        Rectangle().fill(Color(nsColor: .windowBackgroundColor).opacity(0.55))
+                    }
+                }
 
                 Divider()
 
@@ -292,7 +515,7 @@ public struct GrapherView: View {
                     .foregroundStyle(.secondary)
 
                 TextField("", text: $grapherVM.casInput)
-                    .accessibilityLabel("CAS Input")
+                    .accessibilityLabel("CAS input")
                     .font(.system(size: 12, design: .monospaced))
                     .textFieldStyle(.plain)
                     .onSubmit {
@@ -326,11 +549,11 @@ public struct GrapherView: View {
             .padding(.horizontal, LunarTokens.space4)
             .padding(.vertical, LunarTokens.space3)
             .background {
-            ZStack {
-                Rectangle().fill(.regularMaterial)
-                Rectangle().fill(Color(nsColor: .windowBackgroundColor).opacity(0.55))
+                ZStack {
+                    Rectangle().fill(.regularMaterial)
+                    Rectangle().fill(Color(nsColor: .windowBackgroundColor).opacity(0.55))
+                }
             }
-        }
         }
     }
 
@@ -379,7 +602,6 @@ public struct GrapherView: View {
         }
         context.stroke(axisPath, with: .color(axisColor), lineWidth: 1.2)
 
-        // Axis tick marks ("indentations") and numeric coordinates
         let rawOrigin = worldToScreen(x: 0, y: 0, size: size, xRange: xRange, yRange: yRange)
         let tickY = min(max(rawOrigin.y, 12), size.height - 20)
         let tickX = min(max(rawOrigin.x, 28), size.width - 12)
@@ -505,6 +727,218 @@ public struct GrapherView: View {
     }
 }
 
+// MARK: - Plotter HUD
+
+private struct GrapherHUD: View {
+    let canCreateCard: Bool
+    let createCardHelpText: String
+    let highlightedPoint: GraphKeyPoint?
+    let hoveredWorld: (x: Double, y: Double)?
+    let onZoomIn: () -> Void
+    let onZoomOut: () -> Void
+    let onReset: () -> Void
+    let onCreateCard: () -> Void
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: LunarTokens.space2) {
+            HStack(spacing: LunarTokens.space1) {
+                Button(action: onZoomIn) {
+                    Image(systemName: "plus.magnifyingglass")
+                }
+                .help("Zoom in")
+
+                Button(action: onZoomOut) {
+                    Image(systemName: "minus.magnifyingglass")
+                }
+                .help("Zoom out")
+
+                Button("Reset", action: onReset)
+
+                Divider()
+                    .frame(height: 16)
+                    .padding(.horizontal, 2)
+
+                Button(action: onCreateCard) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "rectangle.badge.plus")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Create card")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+                .disabled(!canCreateCard)
+                .help(createCardHelpText)
+            }
+            .buttonStyle(.bordered)
+            .padding(LunarTokens.space2)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: LunarTokens.controlRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: LunarTokens.controlRadius, style: .continuous)
+                    .strokeBorder(LunarTokens.hairlineBorder(), lineWidth: 1)
+            }
+
+            if let point = highlightedPoint {
+                HStack(spacing: 6) {
+                    Text(point.kind.label)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.primary)
+                    Text(GraphFeatureSolver.formatPoint(x: point.x, y: point.y))
+                        .font(.system(size: 11, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, LunarTokens.space2)
+                .padding(.vertical, 4)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(LunarTokens.hairlineBorder(), lineWidth: 1)
+                }
+            } else if let world = hoveredWorld {
+                Text(String(format: "(%.2f, %.2f)", world.x, world.y))
+                    .font(.system(size: 11, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, LunarTokens.space2)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(LunarTokens.hairlineBorder(), lineWidth: 1)
+                    }
+            }
+        }
+    }
+}
+
+// MARK: - Parameter Slider Row
+
+private struct ParameterSliderRow: View {
+    let parameter: GraphParameter
+    let accentColor: Color
+    let onValueChange: (Double) -> Void
+    let onBoundsChange: (Double, Double, Double) -> Void
+    let onReset: () -> Void
+
+    @State private var isEditingBounds = false
+    @State private var minText: String = ""
+    @State private var maxText: String = ""
+    @State private var stepText: String = ""
+
+    private var sliderBinding: Binding<Double> {
+        Binding(
+            get: { parameter.value },
+            set: { onValueChange($0) }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LunarTokens.space2) {
+            HStack(spacing: LunarTokens.space2) {
+                Text("\(String(parameter.name)) =")
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.primary)
+
+                Text(GraphFeatureSolver.formatCoordinate(parameter.value))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                Button {
+                    if !isEditingBounds {
+                        minText = GraphFeatureSolver.formatCoordinate(parameter.min)
+                        maxText = GraphFeatureSolver.formatCoordinate(parameter.max)
+                        stepText = GraphFeatureSolver.formatCoordinate(parameter.step)
+                    }
+                    isEditingBounds.toggle()
+                } label: {
+                    Text("\(GraphFeatureSolver.formatCoordinate(parameter.min))…\(GraphFeatureSolver.formatCoordinate(parameter.max))")
+                        .font(.system(size: 10, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Color.primary.opacity(0.05),
+                            in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(LunarTokens.hairlineBorder(), lineWidth: 1)
+                        }
+                }
+                .buttonStyle(.plain)
+                .help("Edit parameter bounds")
+
+                Button(action: onReset) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Reset parameter")
+            }
+
+            Slider(
+                value: sliderBinding,
+                in: parameter.validatedRange,
+                step: parameter.validatedStep
+            )
+            .controlSize(.small)
+            .tint(accentColor)
+
+            if isEditingBounds {
+                boundsEditorRow
+            }
+        }
+        .padding(.horizontal, LunarTokens.space3)
+        .padding(.vertical, LunarTokens.space2)
+        .lunarGlassCard(cornerRadius: LunarTokens.controlRadius)
+    }
+
+    private var boundsEditorRow: some View {
+        HStack(spacing: LunarTokens.space2) {
+            boundField(label: "Min", text: $minText)
+            boundField(label: "Max", text: $maxText)
+            boundField(label: "Step", text: $stepText)
+
+            Button("Apply") {
+                commitBounds()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+        }
+        .padding(.top, 2)
+    }
+
+    private func boundField(label: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            TextField("", text: text)
+                .font(.system(size: 11, design: .monospaced))
+                .monospacedDigit()
+                .textFieldStyle(.roundedBorder)
+                .onSubmit {
+                    commitBounds()
+                }
+        }
+    }
+
+    private func commitBounds() {
+        let minVal = Double(minText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? parameter.min
+        let maxVal = Double(maxText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? parameter.max
+        let stepVal = Double(stepText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? parameter.step
+        onBoundsChange(minVal, maxVal, stepVal)
+        isEditingBounds = false
+    }
+}
+
+// MARK: - Equation & CAS Rows
+
 private struct EquationRow: View {
     @Binding var entry: EquationEntry
     let curveColor: Color
@@ -512,7 +946,7 @@ private struct EquationRow: View {
 
     private var parseError: String? {
         do {
-            _ = try MathExpressionEvaluator.compileEquation(entry.expression)
+            _ = try MathExpressionEvaluator.compileEquation(entry.expression, allowFreeParameters: true)
             return nil
         } catch {
             return error.localizedDescription
