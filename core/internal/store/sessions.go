@@ -10,6 +10,9 @@ import (
 
 // ListSessions returns completed study sessions ordered newest first.
 func (s *Store) ListSessions() ([]domain.StudySessionRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	rows, err := s.db.Query(`
 		SELECT id, user_id, mode, deck_ids_json, deck_titles_json,
 		       cards_reviewed, correct_count, incorrect_count, lives_left,
@@ -34,6 +37,9 @@ func (s *Store) ListSessions() ([]domain.StudySessionRecord, error) {
 
 // CreateSession validates and persists a completed study session record.
 func (s *Store) CreateSession(rec domain.StudySessionRecord) (domain.StudySessionRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if err := rec.Validate(); err != nil {
 		return domain.StudySessionRecord{}, fmt.Errorf("%w: %v", ErrValidation, err)
 	}
@@ -71,6 +77,9 @@ func (s *Store) CreateSession(rec domain.StudySessionRecord) (domain.StudySessio
 
 // GetActiveSession returns the persisted crash-recovery session snapshot or ErrNotFound.
 func (s *Store) GetActiveSession() (*domain.ActiveSessionState, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	row := s.db.QueryRow(`
 		SELECT session_id, deck_id, deck_ids_json, mode, current_index,
 		       card_ids_json, reviewed_card_ids_json, correct_count,
@@ -104,6 +113,9 @@ func (s *Store) GetActiveSession() (*domain.ActiveSessionState, error) {
 
 // SaveActiveSession upserts the singleton active session row (id = 1).
 func (s *Store) SaveActiveSession(st domain.ActiveSessionState) (domain.ActiveSessionState, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if err := st.Validate(); err != nil {
 		return domain.ActiveSessionState{}, fmt.Errorf("%w: %v", ErrValidation, err)
 	}
@@ -150,6 +162,9 @@ func (s *Store) SaveActiveSession(st domain.ActiveSessionState) (domain.ActiveSe
 
 // ClearActiveSession removes the singleton active session row.
 func (s *Store) ClearActiveSession() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	_, err := s.db.Exec(`DELETE FROM active_session WHERE id = 1`)
 	return err
 }

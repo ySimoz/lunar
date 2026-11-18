@@ -15,6 +15,9 @@ const cardColumns = `id, deck_id, user_id, topic, card_order, card_type, front, 
 
 // ListCards returns cards ordered by card_order; if deckID is non-empty, filters to that deck.
 func (s *Store) ListCards(deckID string) ([]domain.Flashcard, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -59,6 +62,9 @@ func (s *Store) ListCards(deckID string) ([]domain.Flashcard, error) {
 
 // GetCard fetches a single card along with its ordered layers and review history.
 func (s *Store) GetCard(id string) (domain.Flashcard, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return domain.Flashcard{}, err
@@ -85,6 +91,9 @@ func getCard(q queryRunner, id string) (domain.Flashcard, error) {
 
 // CreateCard validates and inserts a new flashcard and its ordered layers.
 func (s *Store) CreateCard(card domain.Flashcard) (domain.Flashcard, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	card = applyCardDefaults(card)
 	if err := card.Validate(); err != nil {
 		return domain.Flashcard{}, fmt.Errorf("%w: %v", ErrValidation, err)
@@ -128,6 +137,9 @@ func (s *Store) CreateCard(card domain.Flashcard) (domain.Flashcard, error) {
 
 // UpdateCardContent updates content fields and layers without touching SM-2 state or review history.
 func (s *Store) UpdateCardContent(id string, update domain.Flashcard) (domain.Flashcard, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return domain.Flashcard{}, err
@@ -187,6 +199,9 @@ func (s *Store) UpdateCardContent(id string, update domain.Flashcard) (domain.Fl
 
 // DeleteCard removes a card and cascades to its layers and review logs.
 func (s *Store) DeleteCard(id string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	res, err := s.db.Exec(`DELETE FROM cards WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete card %s: %w", id, err)

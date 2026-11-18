@@ -25,6 +25,9 @@ type reviewPrevState struct {
 
 // ReorderCards updates card_order for each card ID within deckID.
 func (s *Store) ReorderCards(deckID string, cardIDs []string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if len(cardIDs) == 0 {
 		return fmt.Errorf("%w: cardIds cannot be empty", ErrValidation)
 	}
@@ -71,6 +74,9 @@ func (s *Store) ReorderCards(deckID string, cardIDs []string) error {
 
 // ReviewCard atomically runs SM-2, updates SRS fields, and appends a review_logs entry.
 func (s *Store) ReviewCard(id string, rating int, durationMs *int64, now time.Time) (domain.Flashcard, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return domain.Flashcard{}, err
@@ -145,6 +151,9 @@ func (s *Store) ReviewCard(id string, rating int, durationMs *int64, now time.Ti
 
 // UndoCardReview atomically restores the card's previous SRS state and deletes the corresponding review_logs row.
 func (s *Store) UndoCardReview(id string, reviewLogID *int64) (domain.Flashcard, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if id == "" {
 		return domain.Flashcard{}, fmt.Errorf("%w: card id cannot be empty", ErrValidation)
 	}

@@ -68,6 +68,18 @@ private actor SettingsMockClient: CoreClientProtocol {
         ImportResult(deck: Deck(title: "D"), importedCount: 0, cards: [])
     }
 
+    func importAPKG(
+        _ data: Data,
+        deckId: String?,
+        deckName: String?,
+        skipDuplicates: Bool
+    ) async throws -> ImportResult {
+        ImportResult(deck: Deck(title: deckName ?? "D"), importedCount: 0, cards: [])
+    }
+
+    func backupDatabase() async throws -> Data { Data() }
+    func restoreDatabase(_ data: Data) async throws -> RestoreResult { RestoreResult(decks: 0, cards: 0) }
+
     func getStats(days: Int) async throws -> StatsSummary { StatsSummary() }
 
     @discardableResult

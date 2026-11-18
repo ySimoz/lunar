@@ -15,7 +15,10 @@ import (
 	"lunar/core/internal/store"
 )
 
-const maxRequestBodyBytes = 1 << 20 // 1 MiB
+const (
+	maxRequestBodyBytes = 1 << 20  // 1 MiB
+	maxUploadBodyBytes  = 64 << 20 // 64 MiB
+)
 
 // Server wraps the SQLite store behind a Go 1.22+ net/http ServeMux.
 type Server struct {
@@ -47,6 +50,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/decks/{id}/export", s.handleExportDeck)
 	s.mux.HandleFunc("POST /api/decks/{id}/reorder", s.handleReorderCards)
 	s.mux.HandleFunc("POST /api/import", s.handleImportDeck)
+	s.mux.HandleFunc("POST /api/io/import/apkg", s.handleImportAPKG)
+
+	s.mux.HandleFunc("GET /api/backup", s.handleBackup)
+	s.mux.HandleFunc("POST /api/restore", s.handleRestore)
 
 	s.mux.HandleFunc("GET /api/cards", s.handleListCards)
 	s.mux.HandleFunc("POST /api/cards", s.handleCreateCard)

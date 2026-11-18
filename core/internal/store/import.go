@@ -11,6 +11,9 @@ import (
 
 // BulkImport atomically imports cards into targetDeckID, or creates newDeck first when targetDeckID is empty.
 func (s *Store) BulkImport(targetDeckID string, newDeck *domain.Deck, cards []domain.Flashcard) (domain.Deck, []domain.Flashcard, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if len(cards) == 0 {
 		return domain.Deck{}, nil, fmt.Errorf("%w: no cards to import", ErrValidation)
 	}

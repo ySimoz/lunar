@@ -17,6 +17,9 @@ type deckCounts struct {
 
 // ListDecks returns all decks ordered by creation time with computed cardCount and dueCount.
 func (s *Store) ListDecks(now time.Time) ([]domain.Deck, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	counts, err := computeDeckCounts(s.db, now, "")
 	if err != nil {
 		return nil, err
@@ -46,6 +49,12 @@ func (s *Store) ListDecks(now time.Time) ([]domain.Deck, error) {
 
 // GetDeck returns a single deck with computed cardCount and dueCount.
 func (s *Store) GetDeck(id string, now time.Time) (domain.Deck, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.getDeck(id, now)
+}
+
+func (s *Store) getDeck(id string, now time.Time) (domain.Deck, error) {
 	row := s.db.QueryRow(`
 		SELECT id, user_id, title, description, category, difficulty, color, chapters_json, created_at, updated_at
 		FROM decks WHERE id = ?`, id)
@@ -69,6 +78,9 @@ func (s *Store) GetDeck(id string, now time.Time) (domain.Deck, error) {
 
 // CreateDeck validates and inserts a new deck.
 func (s *Store) CreateDeck(deck domain.Deck) (domain.Deck, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	deck = applyDeckDefaults(deck)
 	if err := deck.Validate(); err != nil {
 		return domain.Deck{}, fmt.Errorf("%w: %v", ErrValidation, err)
@@ -98,6 +110,9 @@ func (s *Store) CreateDeck(deck domain.Deck) (domain.Deck, error) {
 
 // UpdateDeck validates and updates deck metadata without touching its cards.
 func (s *Store) UpdateDeck(id string, deck domain.Deck) (domain.Deck, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	deck = applyDeckDefaults(deck)
 	if err := deck.Validate(); err != nil {
 		return domain.Deck{}, fmt.Errorf("%w: %v", ErrValidation, err)
@@ -120,11 +135,14 @@ func (s *Store) UpdateDeck(id string, deck domain.Deck) (domain.Deck, error) {
 	if n == 0 {
 		return domain.Deck{}, ErrNotFound
 	}
-	return s.GetDeck(id, time.Now())
+	return s.getDeck(id, time.Now())
 }
 
 // DeleteDeck removes a deck and cascades to its cards, layers, and review logs.
 func (s *Store) DeleteDeck(id string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	res, err := s.db.Exec(`DELETE FROM decks WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete deck %s: %w", id, err)
@@ -141,6 +159,9 @@ func (s *Store) DeleteDeck(id string) error {
 
 // ReorderDecks updates deck_order for the supplied deck IDs inside one transaction.
 func (s *Store) ReorderDecks(deckIDs []string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin deck reorder tx: %w", err)

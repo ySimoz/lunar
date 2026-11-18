@@ -83,6 +83,9 @@ public struct AnalyticsView: View {
         .task(id: statsVM.daysWindow) {
             await statsVM.load()
         }
+        .onChange(of: libraryVM.libraryRevision) { _, _ in
+            Task { await statsVM.load() }
+        }
         .background {
             Button("") {
                 if selectedTab == .cards {

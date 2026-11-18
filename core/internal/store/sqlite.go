@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -26,7 +27,9 @@ var (
 
 // Store wraps the SQLite database connection and schema migrations.
 type Store struct {
-	db *sql.DB
+	mu   sync.RWMutex
+	db   *sql.DB
+	path string
 }
 
 // Open opens (or creates) a SQLite database at path, configures WAL + foreign keys, and runs migrations.
@@ -43,7 +46,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 
-	s := &Store{db: db}
+	s := &Store{db: db, path: path}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate schema: %w", err)
@@ -53,18 +56,29 @@ func Open(path string) (*Store, error) {
 
 // Close closes the underlying SQLite connection.
 func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
 	return s.db.Close()
 }
 
 // DB exposes the underlying sql.DB for verification in tests.
 func (s *Store) DB() *sql.DB {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.db
 }
 
-func sqliteDSN(path string) string {
-	isMemory := path == ":memory:" ||
+func isMemorySQLitePath(path string) bool {
+	return path == ":memory:" ||
 		strings.HasPrefix(path, "file::memory:") ||
 		strings.Contains(path, "mode=memory")
+}
+
+func sqliteDSN(path string) string {
+	isMemory := isMemorySQLitePath(path)
 
 	base, rawQuery, hasQuery := strings.Cut(path, "?")
 	vals, err := url.ParseQuery(rawQuery)
@@ -92,18 +106,22 @@ func sqliteDSN(path string) string {
 }
 
 func (s *Store) migrate() error {
-	if _, err := s.db.Exec(schemaSQL); err != nil {
+	return migrateDB(s.db)
+}
+
+func migrateDB(db *sql.DB) error {
+	if _, err := db.Exec(schemaSQL); err != nil {
 		return err
 	}
-	if err := s.ensureColumn("decks", "deck_order", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+	if err := ensureColumn(db, "decks", "deck_order", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
-	return s.ensureColumn("review_logs", "prev_state", "TEXT NOT NULL DEFAULT ''")
+	return ensureColumn(db, "review_logs", "prev_state", "TEXT NOT NULL DEFAULT ''")
 }
 
 // ensureColumn idempotently adds a column to pre-existing SQLite tables.
-func (s *Store) ensureColumn(table, column, columnDef string) error {
-	rows, err := s.db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+func ensureColumn(db *sql.DB, table, column, columnDef string) error {
+	rows, err := db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
 	if err != nil {
 		return err
 	}
@@ -124,7 +142,7 @@ func (s *Store) ensureColumn(table, column, columnDef string) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	_, err = s.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, columnDef))
+	_, err = db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, columnDef))
 	return err
 }
 

@@ -185,6 +185,7 @@ public final class LibraryViewModel {
     public var searchQuery: String = ""
     public var isLoading: Bool = false
     public var errorMessage: String?
+    public private(set) var libraryRevision: Int = 0
     public let dragCoordinator = CardDragCoordinator()
     public let deckDragCoordinator = DeckDragCoordinator()
 
@@ -296,6 +297,7 @@ public final class LibraryViewModel {
             self.preferences = loadedPrefs
             self.activeSession = try? await activeTask
             self.sessions = (try? await sessionsTask) ?? []
+            self.libraryRevision += 1
         } catch {
             self.errorMessage = error.localizedDescription
         }
@@ -517,5 +519,25 @@ public final class LibraryViewModel {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    public func exportBackup() async throws -> Data {
+        guard let client else {
+            throw CoreClientError.unexpectedResponse
+        }
+        return try await client.backupDatabase()
+    }
+
+    @discardableResult
+    public func restoreBackup(_ data: Data) async throws -> RestoreResult {
+        guard let client else {
+            throw CoreClientError.unexpectedResponse
+        }
+        let result = try await client.restoreDatabase(data)
+        await loadAll()
+        if case .deck(let selectedId) = selection, deck(for: selectedId) == nil {
+            selection = .today
+        }
+        return result
     }
 }
