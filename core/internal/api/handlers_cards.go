@@ -101,6 +101,22 @@ func (s *Server) handleReviewCard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+func (s *Server) handleUndoCardReview(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ReviewLogID *int64 `json:"reviewLogId"`
+	}
+	if err := decodeOptionalJSON(w, r, &body); err != nil {
+		writeDecodeError(w, err)
+		return
+	}
+	restored, err := s.store.UndoCardReview(r.PathValue("id"), body.ReviewLogID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, restored)
+}
+
 func (s *Server) handlePredictCard(w http.ResponseWriter, r *http.Request) {
 	card, err := s.store.GetCard(r.PathValue("id"))
 	if err != nil {

@@ -36,6 +36,7 @@ public protocol CoreClientProtocol: Sendable {
     func deleteCard(id: String) async throws
     func reorderCards(deckId: String, cardIds: [String]) async throws
     func reviewCard(id: String, rating: Int, durationMs: Int64?) async throws -> Flashcard
+    func undoReview(cardID: String) async throws -> Flashcard
     func predictCard(id: String) async throws -> [String: IntervalPrediction]
     func listSessions() async throws -> [StudySessionRecord]
     func createSession(_ session: StudySessionRecord) async throws -> StudySessionRecord
@@ -54,6 +55,12 @@ public protocol CoreClientProtocol: Sendable {
         targetTopic: String?,
         targetIndex: Int?
     ) async throws -> Int
+}
+
+public extension CoreClientProtocol {
+    func undoReview(cardID: String) async throws -> Flashcard {
+        throw CoreClientError.unexpectedResponse
+    }
 }
 
 private struct ServerErrorPayload: Decodable {
@@ -161,6 +168,10 @@ public actor CoreClient: CoreClientProtocol {
             path: "/api/cards/\(escaped(id))/review",
             body: ReviewRequest(rating: rating, durationMs: durationMs)
         )
+    }
+
+    public func undoReview(cardID: String) async throws -> Flashcard {
+        try await request("POST", path: "/api/cards/\(escaped(cardID))/undo")
     }
 
     public func predictCard(id: String) async throws -> [String: IntervalPrediction] {

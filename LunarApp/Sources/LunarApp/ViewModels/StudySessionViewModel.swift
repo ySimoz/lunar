@@ -42,6 +42,21 @@ public final class StudySessionViewModel {
     private let client: (any CoreClientProtocol)?
     private let audioPlayer: any AudioCuePlaying
     private var cardDisplayedAt: Date = Date()
+    private var undoStack: [UndoSnapshot] = []
+
+    private struct UndoSnapshot {
+        let card: Flashcard
+        let currentIndex: Int
+        let reviewedCardIDs: Set<String>
+        let correctCount: Int
+        let incorrectCount: Int
+        let livesLeft: Int?
+        let currentStreak: Int
+        let bestStreak: Int
+        let isOutOfLives: Bool
+        let isCompleted: Bool
+        let isGauntletRating: Bool
+    }
 
     public init(
         deck: Deck,
@@ -141,6 +156,10 @@ public final class StudySessionViewModel {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
+    public var canUndo: Bool {
+        !undoStack.isEmpty && !isSubmitting
+    }
+
     // MARK: - Lifecycle & Timer
 
     public func startSession() async {
@@ -193,6 +212,7 @@ public final class StudySessionViewModel {
         defer { isSubmitting = false }
 
         let durationMs = max(0, Int64(Date().timeIntervalSince(cardDisplayedAt) * 1000.0))
+        let snapshot = captureUndoSnapshot(card: card, isGauntletRating: false)
 
         do {
             if let client {
@@ -200,6 +220,7 @@ public final class StudySessionViewModel {
                 replaceCardInQueues(updated)
             }
 
+            undoStack.append(snapshot)
             reviewedCardIDs.insert(card.id)
             if rating >= 2 {
                 correctCount += 1
@@ -230,6 +251,7 @@ public final class StudySessionViewModel {
         isSubmitting = true
         defer { isSubmitting = false }
 
+        undoStack.append(captureUndoSnapshot(card: card, isGauntletRating: true))
         reviewedCardIDs.insert(card.id)
         if knewIt {
             correctCount += 1
@@ -257,6 +279,42 @@ public final class StudySessionViewModel {
             await persistActiveSession()
         } else {
             await completeSession()
+        }
+    }
+
+    /// Reverts the most recent rating in this session (including from completion or game-over),
+    /// restores backend SM-2 state for standard sessions, and returns to the unrevealed card.
+    public func undoLastRating() async {
+        guard !isSubmitting, let snapshot = undoStack.last else { return }
+
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            if !snapshot.isGauntletRating, let client {
+                let restored = try await client.undoReview(cardID: snapshot.card.id)
+                replaceCardInQueues(restored)
+            } else {
+                replaceCardInQueues(snapshot.card)
+            }
+
+            undoStack.removeLast()
+            currentIndex = min(max(0, snapshot.currentIndex), max(0, queue.count - 1))
+            reviewedCardIDs = snapshot.reviewedCardIDs
+            correctCount = snapshot.correctCount
+            incorrectCount = snapshot.incorrectCount
+            livesLeft = snapshot.livesLeft
+            currentStreak = snapshot.currentStreak
+            bestStreak = snapshot.bestStreak
+            isOutOfLives = snapshot.isOutOfLives
+            isCompleted = snapshot.isCompleted
+
+            resetCardRevealState()
+            await loadPredictionsForCurrentCard()
+            await persistActiveSession()
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -313,6 +371,8 @@ public final class StudySessionViewModel {
         elapsedSeconds = 0
         isShuffled = false
         isCompleted = false
+        undoStack.removeAll()
+        errorMessage = nil
         resetCardRevealState()
         await loadPredictionsForCurrentCard()
         await persistActiveSession()
@@ -338,6 +398,22 @@ public final class StudySessionViewModel {
     }
 
     // MARK: - Private Helpers
+
+    private func captureUndoSnapshot(card: Flashcard, isGauntletRating: Bool) -> UndoSnapshot {
+        UndoSnapshot(
+            card: card,
+            currentIndex: currentIndex,
+            reviewedCardIDs: reviewedCardIDs,
+            correctCount: correctCount,
+            incorrectCount: incorrectCount,
+            livesLeft: livesLeft,
+            currentStreak: currentStreak,
+            bestStreak: bestStreak,
+            isOutOfLives: isOutOfLives,
+            isCompleted: isCompleted,
+            isGauntletRating: isGauntletRating
+        )
+    }
 
     private func resetCardRevealState() {
         isAnswerRevealed = false
