@@ -37,6 +37,9 @@ public final class ImportExportViewModel {
     public var importFormat: IOFormat = .markdown
     public var targetTopic: String = ""
     public var importContent: String = ""
+    public var importAPKGData: Data?
+    public var importFilename: String?
+    public var skipDuplicates: Bool = true
     public private(set) var isImporting: Bool = false
     public private(set) var lastImportResult: ImportResult?
     public var importError: String?
@@ -62,6 +65,9 @@ public final class ImportExportViewModel {
     }
 
     public var canImport: Bool {
+        if importFormat == .apkg {
+            return !(importAPKGData?.isEmpty ?? true)
+        }
         guard !importContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
@@ -72,7 +78,7 @@ public final class ImportExportViewModel {
     }
 
     public func loadExportPreview() async {
-        guard let client, !exportDeckId.isEmpty else {
+        guard let client, !exportDeckId.isEmpty, exportFormat.supportsExport else {
             exportResult = nil
             return
         }
@@ -93,10 +99,21 @@ public final class ImportExportViewModel {
         defer {
             if accessed { url.stopAccessingSecurityScopedResource() }
         }
-        let text = try String(contentsOf: url, encoding: .utf8)
-        importContent = text
-        if let detected = IOFormat.detect(from: url) {
-            importFormat = detected
+        let detected = IOFormat.detect(from: url)
+        if detected == .apkg {
+            let data = try Data(contentsOf: url)
+            importFormat = .apkg
+            importAPKGData = data
+            importFilename = url.lastPathComponent
+            importContent = ""
+        } else {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            importContent = text
+            importAPKGData = nil
+            importFilename = url.lastPathComponent
+            if let detected {
+                importFormat = detected
+            }
         }
         if case .newDeck = importTarget,
            newDeckTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -123,22 +140,35 @@ public final class ImportExportViewModel {
             category = nil
         case .newDeck:
             targetDeckId = nil
-            title = newDeckTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedTitle = newDeckTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            title = trimmedTitle.isEmpty ? nil : trimmedTitle
             category = newDeckCategory
         }
 
-        let trimmedTopic = targetTopic.trimmingCharacters(in: .whitespacesAndNewlines)
-        let request = ImportRequest(
-            format: importFormat,
-            content: importContent,
-            targetDeckId: targetDeckId,
-            newDeckTitle: title,
-            category: category,
-            targetTopic: trimmedTopic.isEmpty ? nil : trimmedTopic
-        )
-
         do {
-            let result = try await client.importCards(request)
+            let result: ImportResult
+            if importFormat == .apkg {
+                guard let apkgData = importAPKGData, !apkgData.isEmpty else {
+                    return nil
+                }
+                result = try await client.importAPKG(
+                    apkgData,
+                    deckId: targetDeckId,
+                    deckName: title,
+                    skipDuplicates: skipDuplicates
+                )
+            } else {
+                let trimmedTopic = targetTopic.trimmingCharacters(in: .whitespacesAndNewlines)
+                let request = ImportRequest(
+                    format: importFormat,
+                    content: importContent,
+                    targetDeckId: targetDeckId,
+                    newDeckTitle: title,
+                    category: category,
+                    targetTopic: trimmedTopic.isEmpty ? nil : trimmedTopic
+                )
+                result = try await client.importCards(request)
+            }
             lastImportResult = result
             if !decks.contains(where: { $0.id == result.deck.id }) {
                 decks.append(result.deck)

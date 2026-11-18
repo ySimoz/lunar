@@ -46,6 +46,14 @@ public protocol CoreClientProtocol: Sendable {
     func updatePreferences(_ preferences: UserPreferences) async throws -> UserPreferences
     func exportDeck(deckId: String, format: IOFormat) async throws -> ExportResult
     func importCards(_ request: ImportRequest) async throws -> ImportResult
+    func importAPKG(
+        _ data: Data,
+        deckId: String?,
+        deckName: String?,
+        skipDuplicates: Bool
+    ) async throws -> ImportResult
+    func backupDatabase() async throws -> Data
+    func restoreDatabase(_ data: Data) async throws -> RestoreResult
     func getStats(days: Int) async throws -> StatsSummary
     @discardableResult
     func transferCards(
@@ -212,6 +220,43 @@ public actor CoreClient: CoreClientProtocol {
         try await request("POST", path: "/api/import", body: body)
     }
 
+    public func importAPKG(
+        _ data: Data,
+        deckId: String? = nil,
+        deckName: String? = nil,
+        skipDuplicates: Bool = true
+    ) async throws -> ImportResult {
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "skip_duplicates", value: skipDuplicates ? "true" : "false")
+        ]
+        if let deckId, !deckId.isEmpty {
+            queryItems.append(URLQueryItem(name: "deck_id", value: deckId))
+        }
+        if let deckName, !deckName.isEmpty {
+            queryItems.append(URLQueryItem(name: "deck_name", value: deckName))
+        }
+        return try await uploadBinary(
+            "POST",
+            path: "/api/io/import/apkg",
+            queryItems: queryItems,
+            data: data
+        )
+    }
+
+    public func backupDatabase() async throws -> Data {
+        let url = try buildURL(path: "/api/backup")
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: req)
+        try validateResponse(response, data: data)
+        return data
+    }
+
+    public func restoreDatabase(_ data: Data) async throws -> RestoreResult {
+        try await uploadBinary("POST", path: "/api/restore", data: data)
+    }
+
     public func getStats(days: Int = 30) async throws -> StatsSummary {
         try await request(
             "GET",
@@ -294,6 +339,21 @@ public actor CoreClient: CoreClientProtocol {
         req.httpMethod = method
         let (data, response) = try await session.data(for: req)
         try validateResponse(response, data: data)
+    }
+
+    private func uploadBinary<Response: Decodable>(
+        _ method: String,
+        path: String,
+        queryItems: [URLQueryItem] = [],
+        data: Data
+    ) async throws -> Response {
+        let url = try buildURL(path: path, queryItems: queryItems)
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        req.httpBody = data
+        return try await execute(req)
     }
 
     private func execute<Response: Decodable>(_ request: URLRequest) async throws -> Response {

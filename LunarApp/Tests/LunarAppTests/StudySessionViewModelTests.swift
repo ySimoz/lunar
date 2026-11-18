@@ -97,6 +97,18 @@ private actor StudyMockClient: CoreClientProtocol {
         ImportResult(deck: Deck(title: "Imported"), importedCount: 0, cards: [])
     }
 
+    func importAPKG(
+        _ data: Data,
+        deckId: String?,
+        deckName: String?,
+        skipDuplicates: Bool
+    ) async throws -> ImportResult {
+        ImportResult(deck: Deck(title: deckName ?? "Imported"), importedCount: 0, cards: [])
+    }
+
+    func backupDatabase() async throws -> Data { Data() }
+    func restoreDatabase(_ data: Data) async throws -> RestoreResult { RestoreResult(decks: 0, cards: cards.count) }
+
     func getStats(days: Int) async throws -> StatsSummary {
         StatsSummary()
     }

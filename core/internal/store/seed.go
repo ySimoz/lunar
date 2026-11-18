@@ -53,6 +53,9 @@ type starterBundle struct {
 
 // SeedIfEmpty populates the 4 starter math decks and 16 LaTeX cards when the store is empty.
 func (s *Store) SeedIfEmpty() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	var deckCount, cardCount int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM decks`).Scan(&deckCount); err != nil {
 		return fmt.Errorf("count decks: %w", err)

@@ -5,8 +5,13 @@ import Testing
 private actor MockIOClient: CoreClientProtocol {
     var exportedRequests: [(deckId: String, format: IOFormat)] = []
     var importedRequests: [ImportRequest] = []
+    var apkgRequests: [(data: Data, deckId: String?, deckName: String?, skipDuplicates: Bool)] = []
+    var restoredPayloads: [Data] = []
     var stubExport: ExportResult
     var stubImport: ImportResult
+    var stubBackupData: Data = Data("SQLite format 3\0mock".utf8)
+    var stubRestoreResult: RestoreResult = RestoreResult(decks: 1, cards: 2)
+    var stubDecksAfterRestore: [Deck]?
 
     init(stubExport: ExportResult, stubImport: ImportResult) {
         self.stubExport = stubExport
@@ -14,7 +19,7 @@ private actor MockIOClient: CoreClientProtocol {
     }
 
     func health() async throws -> Bool { true }
-    func listDecks() async throws -> [Deck] { [stubImport.deck] }
+    func listDecks() async throws -> [Deck] { stubDecksAfterRestore ?? [stubImport.deck] }
     func createDeck(_ deck: Deck) async throws -> Deck { deck }
     func updateDeck(id: String, _ deck: Deck) async throws -> Deck { deck }
     func deleteDeck(id: String) async throws {}
@@ -45,6 +50,29 @@ private actor MockIOClient: CoreClientProtocol {
     func importCards(_ request: ImportRequest) async throws -> ImportResult {
         importedRequests.append(request)
         return stubImport
+    }
+
+    func importAPKG(
+        _ data: Data,
+        deckId: String?,
+        deckName: String?,
+        skipDuplicates: Bool
+    ) async throws -> ImportResult {
+        apkgRequests.append((data: data, deckId: deckId, deckName: deckName, skipDuplicates: skipDuplicates))
+        return stubImport
+    }
+
+    func backupDatabase() async throws -> Data {
+        stubBackupData
+    }
+
+    func restoreDatabase(_ data: Data) async throws -> RestoreResult {
+        restoredPayloads.append(data)
+        return stubRestoreResult
+    }
+
+    func setDecksAfterRestore(_ decks: [Deck]) {
+        stubDecksAfterRestore = decks
     }
 
     func getStats(days: Int) async throws -> StatsSummary {
@@ -145,6 +173,9 @@ struct ImportExportTests {
         #expect(IOFormat.detect(from: URL(fileURLWithPath: "/tmp/anki.txt")) == .anki)
         #expect(IOFormat.detect(from: URL(fileURLWithPath: "/tmp/anki.tsv")) == .anki)
         #expect(IOFormat.detect(from: URL(fileURLWithPath: "/tmp/bundle.json")) == .json)
+        #expect(IOFormat.detect(from: URL(fileURLWithPath: "/tmp/calculus.apkg")) == .apkg)
+        #expect(!IOFormat.exportCases.contains(.apkg))
+        #expect(IOFormat.importCases.contains(.apkg))
     }
 
     @Test("ImportExportViewModel loads export preview and performs import")
@@ -201,5 +232,77 @@ struct ImportExportTests {
         #expect(imports[0].newDeckTitle == "New Calculus")
         #expect(imports[0].category == .calculus)
         #expect(imports[0].targetTopic == "Derivatives")
+    }
+
+    @Test("ImportExportViewModel loads binary .apkg file and calls importAPKG")
+    @MainActor
+    func viewModelAPKGImportFlow() async throws {
+        let importedDeck = Deck(id: "d-apkg", title: "Anki Calculus", category: .generalMath, cardCount: 1, dueCount: 1)
+        let mock = MockIOClient(
+            stubExport: ExportResult(filename: "x.md", content: "", mimeType: "text/markdown"),
+            stubImport: ImportResult(
+                deck: importedDeck,
+                importedCount: 1,
+                cards: [Flashcard(id: "c-apkg", deckId: "d-apkg", front: "F", back: "B")]
+            )
+        )
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).apkg")
+        let binaryPayload = Data([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff])
+        try binaryPayload.write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let vm = ImportExportViewModel(decks: [], initialTab: .import, client: mock)
+        vm.importTarget = .newDeck
+        vm.skipDuplicates = true
+        try vm.loadImportedFile(from: tempURL)
+
+        #expect(vm.importFormat == .apkg)
+        #expect(vm.importAPKGData == binaryPayload)
+        #expect(vm.importFilename == tempURL.lastPathComponent)
+        #expect(vm.canImport)
+
+        let result = await vm.performImport()
+        #expect(result?.deck.id == "d-apkg")
+        #expect(result?.importedCount == 1)
+        #expect(vm.decks.contains(where: { $0.id == "d-apkg" }))
+
+        let apkgCalls = await mock.apkgRequests
+        #expect(apkgCalls.count == 1)
+        #expect(apkgCalls[0].data == binaryPayload)
+        #expect(apkgCalls[0].deckId == nil)
+        #expect(apkgCalls[0].skipDuplicates == true)
+    }
+
+    @Test("RestoreResult decodes Go JSON and LibraryViewModel reloads library after restore")
+    @MainActor
+    func libraryBackupAndRestoreFlow() async throws {
+        let restoreJSON = Data(#"{"decks":4,"cards":16}"#.utf8)
+        let decoded = try JSONDecoder().decode(RestoreResult.self, from: restoreJSON)
+        #expect(decoded.decks == 4)
+        #expect(decoded.cards == 16)
+
+        let restoredDeck = Deck(id: "d-restored", title: "Restored Deck", category: .topology, cardCount: 2, dueCount: 2)
+        let mock = MockIOClient(
+            stubExport: ExportResult(filename: "x.md", content: "", mimeType: "text/markdown"),
+            stubImport: ImportResult(deck: restoredDeck, importedCount: 0, cards: [])
+        )
+        await mock.setDecksAfterRestore([restoredDeck])
+
+        let libraryVM = LibraryViewModel(client: mock)
+        libraryVM.decks = [Deck(id: "d-stale", title: "Stale Deck")]
+        libraryVM.selection = .deck("d-stale")
+
+        let exported = try await libraryVM.exportBackup()
+        #expect(exported == Data("SQLite format 3\0mock".utf8))
+
+        let counts = try await libraryVM.restoreBackup(exported)
+        #expect(counts.decks == 1)
+        #expect(counts.cards == 2)
+        #expect(libraryVM.decks.map(\.id) == ["d-restored"])
+        #expect(libraryVM.selection == .today)
+        let payloads = await mock.restoredPayloads
+        #expect(payloads == [exported])
     }
 }

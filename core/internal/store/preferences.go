@@ -10,6 +10,9 @@ import (
 
 // GetPreferences returns persisted UserPreferences or defaults when none are saved yet.
 func (s *Store) GetPreferences() (domain.UserPreferences, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	row := s.db.QueryRow(`
 		SELECT font_family, font_size, retro_ui_font, theme, color_mode,
 		       sound_enabled, default_lives, auto_reveal_steps,
@@ -36,6 +39,9 @@ func (s *Store) GetPreferences() (domain.UserPreferences, error) {
 
 // UpdatePreferences validates and persists the singleton UserPreferences row (id = 1).
 func (s *Store) UpdatePreferences(p domain.UserPreferences) (domain.UserPreferences, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	d := domain.DefaultPreferences()
 	if p.Theme == "" {
 		p.Theme = d.Theme

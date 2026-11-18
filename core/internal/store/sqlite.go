@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -24,7 +25,9 @@ var (
 
 // Store wraps the SQLite database connection and schema migrations.
 type Store struct {
-	db *sql.DB
+	mu   sync.RWMutex
+	db   *sql.DB
+	path string
 }
 
 // Open opens (or creates) a SQLite database at path, configures WAL + foreign keys, and runs migrations.
@@ -41,7 +44,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 
-	s := &Store{db: db}
+	s := &Store{db: db, path: path}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate schema: %w", err)
@@ -51,18 +54,29 @@ func Open(path string) (*Store, error) {
 
 // Close closes the underlying SQLite connection.
 func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
 	return s.db.Close()
 }
 
 // DB exposes the underlying sql.DB for verification in tests.
 func (s *Store) DB() *sql.DB {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.db
 }
 
-func sqliteDSN(path string) string {
-	isMemory := path == ":memory:" ||
+func isMemorySQLitePath(path string) bool {
+	return path == ":memory:" ||
 		strings.HasPrefix(path, "file::memory:") ||
 		strings.Contains(path, "mode=memory")
+}
+
+func sqliteDSN(path string) string {
+	isMemory := isMemorySQLitePath(path)
 
 	base, rawQuery, hasQuery := strings.Cut(path, "?")
 	vals, err := url.ParseQuery(rawQuery)
@@ -90,15 +104,19 @@ func sqliteDSN(path string) string {
 }
 
 func (s *Store) migrate() error {
-	if _, err := s.db.Exec(schemaSQL); err != nil {
+	return migrateDB(s.db)
+}
+
+func migrateDB(db *sql.DB) error {
+	if _, err := db.Exec(schemaSQL); err != nil {
 		return err
 	}
-	return s.ensureDeckOrderColumn()
+	return ensureDeckOrderColumn(db)
 }
 
 // ensureDeckOrderColumn adds deck_order to pre-existing SQLite databases.
-func (s *Store) ensureDeckOrderColumn() error {
-	rows, err := s.db.Query(`PRAGMA table_info(decks)`)
+func ensureDeckOrderColumn(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(decks)`)
 	if err != nil {
 		return err
 	}
@@ -119,7 +137,7 @@ func (s *Store) ensureDeckOrderColumn() error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`ALTER TABLE decks ADD COLUMN deck_order INTEGER NOT NULL DEFAULT 0`)
+	_, err = db.Exec(`ALTER TABLE decks ADD COLUMN deck_order INTEGER NOT NULL DEFAULT 0`)
 	return err
 }
 

@@ -93,7 +93,8 @@ public struct ImportExportSheet: View {
                 .commaSeparatedText,
                 .tabSeparatedText,
                 .json,
-                UTType(filenameExtension: "md") ?? .plainText
+                UTType(filenameExtension: "md") ?? .plainText,
+                UTType(filenameExtension: "apkg") ?? .data
             ],
             allowsMultipleSelection: false
         ) { result in
@@ -150,7 +151,7 @@ public struct ImportExportSheet: View {
                         .foregroundStyle(.secondary)
                     LunarMenuPicker(
                         selection: $vm.exportFormat,
-                        options: IOFormat.allCases.map { ($0, $0.displayName) }
+                        options: IOFormat.exportCases.map { ($0, $0.displayName) }
                     )
                 }
             }
@@ -247,45 +248,57 @@ public struct ImportExportSheet: View {
                             .foregroundStyle(.secondary)
                         LunarMenuPicker(
                             selection: $vm.importFormat,
-                            options: IOFormat.allCases.map { ($0, $0.displayName) }
+                            options: IOFormat.importCases.map { ($0, $0.displayName) }
                         )
                     }
                 }
 
                 if case .newDeck = vm.importTarget {
                     HStack(spacing: LunarTokens.space4) {
-                        TextField("", text: $vm.newDeckTitle, prompt: Text("Deck title"))
-                            .accessibilityLabel("Deck Title")
-                            .textFieldStyle(.roundedBorder)
-
-                        LunarMenuPicker(
-                            selection: $vm.newDeckCategory,
-                            options: SubjectCategory.allCases.map { ($0, $0.rawValue) }
+                        TextField(
+                            "",
+                            text: $vm.newDeckTitle,
+                            prompt: Text(vm.importFormat == .apkg ? "Deck title (optional)" : "Deck title")
                         )
+                        .accessibilityLabel("Deck Title")
+                        .textFieldStyle(.roundedBorder)
+
+                        if vm.importFormat != .apkg {
+                            LunarMenuPicker(
+                                selection: $vm.newDeckCategory,
+                                options: SubjectCategory.allCases.map { ($0, $0.rawValue) }
+                            )
+                        }
                     }
                 }
 
-                TextField("", text: $vm.targetTopic, prompt: Text("Chapter"))
-                    .accessibilityLabel("Target Chapter")
-                    .textFieldStyle(.roundedBorder)
-            }
-
-            HStack {
-                Text("Content")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Choose File") {
-                    isShowingFileImporter = true
+                if vm.importFormat != .apkg {
+                    TextField("", text: $vm.targetTopic, prompt: Text("Chapter"))
+                        .accessibilityLabel("Target Chapter")
+                        .textFieldStyle(.roundedBorder)
                 }
-                .buttonStyle(.bordered)
             }
 
-            TextEditor(text: $vm.importContent)
-                .font(.system(size: 12, design: .monospaced))
-                .padding(LunarTokens.space2)
-                .lunarGlassCard(cornerRadius: LunarTokens.cardRadius)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if vm.importFormat == .apkg {
+                apkgImportBody
+            } else {
+                HStack {
+                    Text("Content")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Choose File") {
+                        isShowingFileImporter = true
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                TextEditor(text: $vm.importContent)
+                    .font(.system(size: 12, design: .monospaced))
+                    .padding(LunarTokens.space2)
+                    .lunarGlassCard(cornerRadius: LunarTokens.cardRadius)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
 
             if let error = vm.importError {
                 Text(error)
@@ -319,6 +332,49 @@ public struct ImportExportSheet: View {
             }
         }
         .padding(LunarTokens.space5)
+    }
+
+    private var apkgImportBody: some View {
+        VStack(alignment: .leading, spacing: LunarTokens.space3) {
+            HStack {
+                Text("Anki package")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Choose .apkg File") {
+                    isShowingFileImporter = true
+                }
+                .buttonStyle(.bordered)
+            }
+
+            VStack(spacing: LunarTokens.space3) {
+                Image(systemName: "archivebox")
+                    .font(.system(size: 24, weight: .regular))
+                    .foregroundStyle(.secondary)
+
+                if let data = vm.importAPKGData, !data.isEmpty {
+                    Text(vm.importFilename ?? "deck.apkg")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))
+                        .font(.system(size: 12, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("No .apkg file selected")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(LunarTokens.space5)
+            .lunarGlassCard(cornerRadius: LunarTokens.cardRadius)
+
+            Toggle("Skip duplicate cards", isOn: $vm.skipDuplicates)
+                .toggleStyle(MonochromeGlassToggleStyle())
+        }
     }
 
     private func copyExportToPasteboard() {

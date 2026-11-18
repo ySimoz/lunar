@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Standard 4-tab macOS `Settings` window (`⌘,`) backed by `lunar-core` preferences.
 public struct SettingsView: View {
@@ -7,6 +9,13 @@ public struct SettingsView: View {
     @AppStorage("lunar.showPomodoroInMenuBar") private var showPomodoroInMenuBar: Bool = true
     @State private var draft: UserPreferences = UserPreferences()
     @State private var didLoadDraft = false
+    @State private var isBackingUp = false
+    @State private var isRestoring = false
+    @State private var pendingRestoreData: Data?
+    @State private var pendingRestoreFilename: String = ""
+    @State private var isConfirmingRestore = false
+    @State private var backupStatusMessage: String?
+    @State private var backupErrorMessage: String?
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -37,7 +46,18 @@ public struct SettingsView: View {
                     Label("Data", systemImage: "internaldrive")
                 }
         }
-        .frame(width: 500, height: 340)
+        .frame(width: 500, height: 390)
+        .alert("Restore library backup?", isPresented: $isConfirmingRestore) {
+            Button("Restore", role: .destructive) {
+                confirmRestoreBackup()
+            }
+            Button("Cancel", role: .cancel) {
+                pendingRestoreData = nil
+                pendingRestoreFilename = ""
+            }
+        } message: {
+            Text("Restoring from \(pendingRestoreFilename) replaces all current decks, cards, and review history.")
+        }
         .onAppear {
             draft = libraryVM.preferences
             didLoadDraft = true
@@ -199,9 +219,119 @@ public struct SettingsView: View {
                 .buttonStyle(.bordered)
                 .disabled(!processManager.state.isConnected || libraryVM.decks.isEmpty)
             }
+
+            LabeledContent("Database backup") {
+                HStack(spacing: LunarTokens.space2) {
+                    Button {
+                        exportDatabaseBackup()
+                    } label: {
+                        if isBackingUp {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Text("Export Backup")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!processManager.state.isConnected || isBackingUp || isRestoring)
+
+                    Button("Restore Backup...") {
+                        pickBackupForRestore()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!processManager.state.isConnected || isBackingUp || isRestoring)
+                }
+            }
+
+            if let error = backupErrorMessage {
+                Text(error)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.red)
+            } else if let status = backupStatusMessage {
+                Text(status)
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    private func exportDatabaseBackup() {
+        backupErrorMessage = nil
+        backupStatusMessage = nil
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "db") ?? .data]
+        panel.canCreateDirectories = true
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        panel.nameFieldStringValue = "lunar-backup-\(dateFormatter.string(from: Date())).db"
+
+        Task {
+            let response = await panel.begin()
+            guard response == .OK, let destinationURL = panel.url else { return }
+            isBackingUp = true
+            defer { isBackingUp = false }
+            do {
+                let data = try await libraryVM.exportBackup()
+                try data.write(to: destinationURL, options: .atomic)
+                backupStatusMessage = "Saved \(destinationURL.lastPathComponent)"
+            } catch {
+                backupErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func pickBackupForRestore() {
+        backupErrorMessage = nil
+        backupStatusMessage = nil
+
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "db") ?? .data,
+            UTType(filenameExtension: "sqlite") ?? .data,
+            UTType(filenameExtension: "sqlite3") ?? .data
+        ]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+
+        Task {
+            let response = await panel.begin()
+            guard response == .OK, let sourceURL = panel.url else { return }
+            do {
+                let accessed = sourceURL.startAccessingSecurityScopedResource()
+                defer {
+                    if accessed { sourceURL.stopAccessingSecurityScopedResource() }
+                }
+                let data = try Data(contentsOf: sourceURL)
+                pendingRestoreData = data
+                pendingRestoreFilename = sourceURL.lastPathComponent
+                isConfirmingRestore = true
+            } catch {
+                backupErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func confirmRestoreBackup() {
+        guard let data = pendingRestoreData else { return }
+        pendingRestoreData = nil
+        isRestoring = true
+        backupErrorMessage = nil
+        backupStatusMessage = nil
+
+        Task {
+            defer { isRestoring = false }
+            do {
+                let counts = try await libraryVM.restoreBackup(data)
+                backupStatusMessage = "Restored \(counts.decks) decks and \(counts.cards) cards"
+            } catch {
+                backupErrorMessage = error.localizedDescription
+            }
+        }
     }
 
     private var statusText: String {

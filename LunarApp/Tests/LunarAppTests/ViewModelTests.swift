@@ -101,6 +101,23 @@ private actor MockCoreClient: CoreClientProtocol {
         ImportResult(deck: decks.first ?? Deck(title: "Imported"), importedCount: 0, cards: [])
     }
 
+    func importAPKG(
+        _ data: Data,
+        deckId: String?,
+        deckName: String?,
+        skipDuplicates: Bool
+    ) async throws -> ImportResult {
+        ImportResult(deck: decks.first ?? Deck(title: deckName ?? "Anki"), importedCount: 0, cards: [])
+    }
+
+    func backupDatabase() async throws -> Data {
+        Data("SQLite format 3\0".utf8)
+    }
+
+    func restoreDatabase(_ data: Data) async throws -> RestoreResult {
+        RestoreResult(decks: decks.count, cards: cards.count)
+    }
+
     func getStats(days: Int) async throws -> StatsSummary {
         StatsSummary()
     }

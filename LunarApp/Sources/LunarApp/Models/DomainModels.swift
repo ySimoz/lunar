@@ -568,8 +568,16 @@ public enum IOFormat: String, Codable, CaseIterable, Sendable, Identifiable {
     case anki = "anki"
     case csv = "csv"
     case json = "json"
+    case apkg = "apkg"
+
+    public static let exportCases: [IOFormat] = [.markdown, .anki, .csv, .json]
+    public static let importCases: [IOFormat] = [.markdown, .anki, .csv, .json, .apkg]
 
     public var id: String { rawValue }
+
+    public var supportsExport: Bool {
+        self != .apkg
+    }
 
     public var displayName: String {
         switch self {
@@ -577,6 +585,7 @@ public enum IOFormat: String, Codable, CaseIterable, Sendable, Identifiable {
         case .anki: "Anki TSV"
         case .csv: "CSV"
         case .json: "JSON"
+        case .apkg: "Anki (.apkg)"
         }
     }
 
@@ -586,6 +595,7 @@ public enum IOFormat: String, Codable, CaseIterable, Sendable, Identifiable {
         case .anki: "txt"
         case .csv: "csv"
         case .json: "json"
+        case .apkg: "apkg"
         }
     }
 
@@ -595,6 +605,7 @@ public enum IOFormat: String, Codable, CaseIterable, Sendable, Identifiable {
         case .anki: .tabSeparatedText
         case .csv: .commaSeparatedText
         case .json: .json
+        case .apkg: UTType(filenameExtension: "apkg") ?? .data
         }
     }
 
@@ -604,8 +615,20 @@ public enum IOFormat: String, Codable, CaseIterable, Sendable, Identifiable {
         case "csv": return .csv
         case "tsv", "txt": return .anki
         case "json": return .json
+        case "apkg": return .apkg
         default: return nil
         }
+    }
+}
+
+/// Library counts returned by `POST /api/restore`, matching Go `store.RestoreCounts`.
+public struct RestoreResult: Codable, Hashable, Sendable {
+    public var decks: Int
+    public var cards: Int
+
+    public init(decks: Int, cards: Int) {
+        self.decks = decks
+        self.cards = cards
     }
 }
 

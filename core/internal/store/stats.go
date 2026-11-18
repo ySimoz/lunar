@@ -11,6 +11,9 @@ import (
 
 // GetStats aggregates study analytics, mastery pipeline, streaks, and daily activity.
 func (s *Store) GetStats(days int, now time.Time) (stats.Summary, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if days < 1 || days > 365 {
 		return stats.Summary{}, fmt.Errorf("%w: days must be between 1 and 365", ErrValidation)
 	}

@@ -14,6 +14,9 @@ import (
 // TransferCards atomically moves cards to TargetDeckID with TargetTopic, preserving SRS state and review logs.
 // If TargetTopic is non-empty and absent from the target deck's chapters, it is appended to chapters_json.
 func (s *Store) TransferCards(ctx context.Context, req domain.TransferCardsRequest) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if err := req.Validate(); err != nil {
 		return 0, fmt.Errorf("%w: %v", ErrValidation, err)
 	}
