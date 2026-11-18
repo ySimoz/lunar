@@ -1,100 +1,52 @@
-<svg xmlns="http://www.w3.org/2000/svg"
-     width="1200" height="360" viewBox="0 0 1200 360"
-     role="img" aria-labelledby="lunar-hero-title lunar-hero-desc">
-  <title id="lunar-hero-title">Lunar — macOS Flashcards, Proof Steps, and Math Workspace</title>
-  <desc id="lunar-hero-desc">Lunar combines spaced-repetition flashcards, step-by-step proof reveal, and a 2D math grapher in a local-first macOS app.</desc>
-
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 220" width="920" height="220" role="img" aria-labelledby="lunar-hero-title">
+  <title id="lunar-hero-title">Lunar — A macOS-first study workspace for flashcards and math</title>
   <defs>
-    <linearGradient id="canvasBg" x1="0" y1="0" x2="1200" y2="360" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#151922"/>
-      <stop offset="100%" stop-color="#0D1016"/>
+    <linearGradient id="bannerBg" x1="0" y1="0" x2="920" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#171B22" />
+      <stop offset="100%" stop-color="#0E1117" />
     </linearGradient>
-    <linearGradient id="canvasRim" x1="600" y1="0" x2="600" y2="360" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16"/>
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.05"/>
+    <linearGradient id="bannerRim" x1="460" y1="0" x2="460" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.05" />
     </linearGradient>
-    <linearGradient id="silverMoon" x1="16" y1="54" x2="54" y2="16" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#CBD5E1"/>
-      <stop offset="60%" stop-color="#E2E8F0"/>
-      <stop offset="100%" stop-color="#F8FAFC"/>
+    <linearGradient id="squircleBg" x1="110" y1="38" x2="110" y2="182" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#222A36" />
+      <stop offset="100%" stop-color="#131720" />
     </linearGradient>
-    <linearGradient id="cardSurface" x1="0" y1="0" x2="0" y2="226" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#222936"/>
-      <stop offset="100%" stop-color="#151A23"/>
+    <linearGradient id="frontCardBg" x1="60" y1="70" x2="160" y2="164" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#323C4B" stop-opacity="0.88" />
+      <stop offset="100%" stop-color="#1A202B" stop-opacity="0.95" />
+    </linearGradient>
+    <linearGradient id="silverMoon" x1="86" y1="142" x2="140" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#CBD5E1" />
+      <stop offset="55%" stop-color="#E2E8F0" />
+      <stop offset="100%" stop-color="#F8FAFC" />
     </linearGradient>
   </defs>
 
-  <rect x="2" y="2" width="1196" height="356" rx="26" fill="url(#canvasBg)" stroke="url(#canvasRim)" stroke-width="1.5"/>
+  <rect x="2" y="2" width="916" height="216" rx="24" fill="url(#bannerBg)" stroke="url(#bannerRim)" stroke-width="1.5" />
 
-  <!-- Left column: identity and plain-language value -->
-  <g id="title-block" transform="translate(56 48)">
-    <text x="0" y="22" fill="#9CA6B5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="500">macOS 14+</text>
-
-    <!-- Brand mark + wordmark -->
-    <g transform="translate(0 46)">
-      <rect x="0" y="0" width="70" height="70" rx="18" fill="#1C222D" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1.2"/>
-      <rect x="14" y="12" width="42" height="46" rx="6" fill="#2A3241" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="1"/>
-      <path d="M 33.0 21.5 A 14 14 0 1 0 49.8 38.3 A 11.8 11.8 0 0 1 33.0 21.5 Z" fill="url(#silverMoon)"/>
-      <text x="90" y="53" fill="#F4F4F5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="58" font-weight="600" letter-spacing="-1">Lunar</text>
-    </g>
-
-    <text x="0" y="160" fill="#D5DCE6" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="24" font-weight="400">A macOS-first study workspace</text>
-    <text x="0" y="194" fill="#D5DCE6" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="24" font-weight="400">for flashcards and math.</text>
-
-    <!-- Metadata pills -->
-    <g transform="translate(0 226)">
-      <rect x="0" y="0" width="92" height="34" rx="8" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1"/>
-      <text x="46" y="23" text-anchor="middle" fill="#F4F4F5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" font-weight="500">v0.1.0</text>
-
-      <rect x="106" y="0" width="144" height="34" rx="8" fill="#FFFFFF" fill-opacity="0.06" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1"/>
-      <text x="178" y="23" text-anchor="middle" fill="#CBD5E1" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="500">SwiftUI + Go</text>
-
-      <rect x="264" y="0" width="164" height="34" rx="8" fill="#FFFFFF" fill-opacity="0.06" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1"/>
-      <text x="346" y="23" text-anchor="middle" fill="#CBD5E1" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="500">Offline KaTeX</text>
-    </g>
+  <!-- App emblem -->
+  <g transform="translate(38, 38)">
+    <rect x="0" y="0" width="144" height="144" rx="34" fill="url(#squircleBg)" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1.2" />
+    <rect x="32" y="20" width="80" height="86" rx="8" fill="#1B222D" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="1" />
+    <rect x="22" y="30" width="100" height="94" rx="11" fill="url(#frontCardBg)" stroke="#FFFFFF" stroke-opacity="0.20" stroke-width="1.2" />
+    <path d="M 67.8 46.5 A 28 28 0 1 0 101.4 80.1 A 23.8 23.8 0 0 1 67.8 46.5 Z" fill="url(#silverMoon)" />
   </g>
 
-  <!-- Right column: stepped flashcard + 2D curve specimen side-by-side/layered cleanly -->
-  <g id="project-proof" transform="translate(652 40)">
-    <!-- Back graph card (shifted right so contour and axes are clearly legible) -->
-    <g transform="translate(262 0)">
-      <rect x="0" y="0" width="234" height="224" rx="16" fill="#12161F" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1.2"/>
-      <line x1="20" y1="126" x2="214" y2="126" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="1"/>
-      <line x1="138" y1="42" x2="138" y2="204" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="1"/>
-      <circle cx="138" cy="126" r="46" fill="none" stroke="#94A3B8" stroke-opacity="0.78" stroke-width="2"/>
-      <path d="M 52 132 Q 86 78, 120 126 T 186 126 T 214 118" fill="none" stroke="#F4F4F5" stroke-width="2.2" stroke-linecap="round"/>
-      <text x="116" y="30" fill="#9CA6B5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">x² + y² = 9</text>
-    </g>
+  <!-- Wordmark and summary -->
+  <text x="218" y="96" fill="#F4F4F5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="52" font-weight="600" letter-spacing="-0.8">Lunar</text>
+  <text x="220" y="138" fill="#B4BCC8" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="19" font-weight="400">A macOS-first study workspace for flashcards and math.</text>
 
-    <!-- Foreground stepped flashcard -->
-    <g transform="translate(0 54)">
-      <rect x="0" y="0" width="356" height="224" rx="18" fill="url(#cardSurface)" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="1.3"/>
+  <!-- Version & platform pills -->
+  <g transform="translate(220, 158)">
+    <rect x="0" y="0" width="76" height="26" rx="7" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1" />
+    <text x="38" y="17" text-anchor="middle" fill="#E2E8F0" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="500">v0.1.0</text>
 
-      <circle cx="26" cy="30" r="4.5" fill="#F4F4F5"/>
-      <text x="42" y="36" fill="#9CA6B5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="500">Theorem · Spectral Theory</text>
+    <rect x="88" y="0" width="112" height="26" rx="7" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1" />
+    <text x="144" y="17" text-anchor="middle" fill="#CBD5E1" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif" font-size="12" font-weight="500">macOS 14+</text>
 
-      <text x="22" y="72" fill="#F4F4F5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="21" font-weight="600">A = Q Λ Qᵀ for symmetric A</text>
-
-      <rect x="22" y="92" width="312" height="34" rx="8" fill="#FFFFFF" fill-opacity="0.06" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="1"/>
-      <text x="34" y="115" fill="#CBD5E1" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="18">Step 1 · Real eigenvalues</text>
-
-      <rect x="22" y="134" width="312" height="34" rx="8" fill="#FFFFFF" fill-opacity="0.04" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="1"/>
-      <text x="34" y="157" fill="#9CA6B5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="18">Step 2 · Orthogonal eigenspaces</text>
-
-      <!-- SM-2 rating pills -->
-      <g transform="translate(22 182)">
-        <rect x="0" y="0" width="72" height="28" rx="7" fill="#FFFFFF" fill-opacity="0.06" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="1"/>
-        <text x="36" y="20" text-anchor="middle" fill="#9CA6B5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="16">Again</text>
-
-        <rect x="80" y="0" width="72" height="28" rx="7" fill="#FFFFFF" fill-opacity="0.06" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="1"/>
-        <text x="116" y="20" text-anchor="middle" fill="#9CA6B5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="16">Hard</text>
-
-        <rect x="160" y="0" width="74" height="28" rx="7" fill="#F4F4F5"/>
-        <text x="197" y="20" text-anchor="middle" fill="#111318" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="600">Good</text>
-
-        <rect x="242" y="0" width="70" height="28" rx="7" fill="#FFFFFF" fill-opacity="0.06" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="1"/>
-        <text x="277" y="20" text-anchor="middle" fill="#9CA6B5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="16">Easy</text>
-      </g>
-    </g>
+    <rect x="212" y="0" width="136" height="26" rx="7" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1" />
+    <text x="280" y="17" text-anchor="middle" fill="#CBD5E1" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif" font-size="12" font-weight="500">SwiftUI + Go</text>
   </g>
 </svg>
