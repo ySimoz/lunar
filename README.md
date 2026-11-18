@@ -1,8 +1,10 @@
 <p align="center">
-  <img src="docs/assets/lunar-logo.svg" alt="Lunar logo, stepped flashcard specimen, and plain-language summary" width="100%" />
+  <a href="#readme">
+    <img src="docs/assets/lunar-logo.svg" alt="Lunar — a macOS-first study workspace for flashcards and math" width="100%" />
+  </a>
 </p>
 
-Lunar is a local-first macOS study desk. Keep your flashcards and notes on your own Mac, review what is due today, step through difficult proofs one hint at a time, and switch straight to a focus timer or 2D grapher without leaving the window.
+Lunar is a macOS-first workspace for studying with flashcards and math. Organize your decks on your Mac, review due cards with spaced repetition, add progressive hints to proofs, and use the built-in 2D grapher and focus timer in one place.
 
 ---
 
@@ -12,11 +14,11 @@ Lunar is a local-first macOS study desk. Keep your flashcards and notes on your 
   <img src="docs/assets/preview-deck.png" alt="Lunar deck view with chapter groups, Due only filter switch, and rendered math formulas" width="100%" />
 </p>
 
-- **Step-by-Step Proof Reveal:** Split dense derivations into ordered layers so you test recall before revealing each step.
-- **Calm Daily Review (`Today` & `SM-2`):** Shows only what is due, remembers interrupted sessions across restarts, and schedules next intervals (`Again`, `Hard`, `Good`, `Easy`) locally.
-- **Chapters, Filtering & Drag Reordering:** Organize cards into chapters, filter by `Definition`, `Theorem`, `Example`, difficulty, or `Due only`, and drag decks or cards freely in `Custom Order`.
-- **Gauntlet & Card Analytics:** Run timed mixed survival drills without touching SM-2 schedules, then inspect weak spots under `Low Ease` and 7/30/90-day activity charts.
-- **2D Grapher, Symbolic CAS & Focus Timer:** Plot explicit and implicit equations (`y = sin(x) * cos(x / 2)`, `x^2 + y^2 = 9`) with numbered axes and scroll-wheel zoom, run symbolic `diff` / `integrate` / `solve`, and keep an optional Pomodoro countdown in the menu bar.
+- **Hint Layers:** Break long problems or proofs into ordered hints so you can check each step before flipping the card.
+- **Daily Review (`Today` & `SM-2`):** Tracks what is due today, restores interrupted sessions on relaunch, and schedules reviews (`Again`, `Hard`, `Good`, `Easy`) locally.
+- **Chapters, Filters & Drag Order:** Group cards into chapters, filter by `Definition`, `Theorem`, `Example`, difficulty, or `Due only`, and drag decks or cards in `Custom Order`.
+- **Gauntlet & Analytics:** Practice mixed drills across decks without altering SM-2 intervals, and review weak cards under `Low Ease` and 7/30/90-day charts.
+- **2D Grapher, CAS & Focus Timer:** Plot explicit and implicit equations (`y = sin(x) * cos(x / 2)`, `x^2 + y^2 = 9`) with numbered axes and scroll-wheel zoom, run `diff` / `integrate` / `solve`, and toggle a menu-bar Pomodoro timer.
 
 <details>
 <summary>More views: Today hub, Library grid, and 2D Grapher</summary>
@@ -77,7 +79,9 @@ cd ../LunarApp && swift test
 Lunar splits UI and persistence across two local processes. When `Lunar.app` launches, it spawns `lunar-core` as an auxiliary child binary bound to an ephemeral localhost port (`127.0.0.1:0`), reads `LUNAR_CORE_ADDR` from stdout, communicates over JSON REST endpoints, and terminates the child daemon cleanly on quit.
 
 <p align="center">
-  <img src="docs/assets/lunar-architecture.svg" alt="Lunar two-process architecture connecting SwiftUI Lunar.app, localhost Go REST daemon lunar-core, and SQLite stores" width="100%" />
+  <a href="#architecture--tech-stack">
+    <img src="docs/assets/lunar-architecture.svg" alt="Lunar two-process architecture connecting SwiftUI Lunar.app, localhost Go REST daemon lunar-core, and SQLite stores" width="100%" />
+  </a>
 </p>
 
 | Layer | Technology | Responsibility |

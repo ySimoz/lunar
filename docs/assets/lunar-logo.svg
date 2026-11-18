@@ -28,7 +28,7 @@
 
   <!-- Left column: identity and plain-language value -->
   <g id="title-block" transform="translate(56 48)">
-    <text x="0" y="22" fill="#9CA6B5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="500">macOS 14+ · Local-first study workspace</text>
+    <text x="0" y="22" fill="#9CA6B5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="500">macOS 14+</text>
 
     <!-- Brand mark + wordmark -->
     <g transform="translate(0 46)">
@@ -38,8 +38,8 @@
       <text x="90" y="53" fill="#F4F4F5" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="58" font-weight="600" letter-spacing="-1">Lunar</text>
     </g>
 
-    <text x="0" y="160" fill="#D5DCE6" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="23" font-weight="400">Review flashcards, reveal tough proofs step by step,</text>
-    <text x="0" y="192" fill="#D5DCE6" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="23" font-weight="400">and plot math in one quiet workspace.</text>
+    <text x="0" y="160" fill="#D5DCE6" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="24" font-weight="400">A macOS-first study workspace</text>
+    <text x="0" y="194" fill="#D5DCE6" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="24" font-weight="400">for flashcards and math.</text>
 
     <!-- Metadata pills -->
     <g transform="translate(0 226)">
