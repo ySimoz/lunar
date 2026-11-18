@@ -1,6 +1,6 @@
 <p align="center">
   <a href="#readme">
-    <img src="docs/assets/lunar-logo.svg" alt="Lunar — a macOS-first study workspace for flashcards and math" width="100%" />
+    <img src="docs/assets/lunar-banner.svg" alt="Lunar — a macOS-first study workspace for flashcards and math" width="100%" />
   </a>
 </p>
 
