@@ -95,6 +95,9 @@ public enum GraphFeatureSolver {
                     }
                     return curve.implicitAST.evaluate(x: x, y: 0, parameters: parameters)
                 }
+                if isIdenticallyZero(evalX, in: xRange) {
+                    continue
+                }
                 let roots = findRoots(of: evalX, in: xRange, ySpan: ySpan, maxCount: maxPerCategory)
                 for rx in roots {
                     xIntercepts.append(GraphKeyPoint(
@@ -123,6 +126,9 @@ public enum GraphFeatureSolver {
                 } else {
                     let evalY: (Double) -> Double = { y in
                         curve.implicitAST.evaluate(x: 0, y: y, parameters: parameters)
+                    }
+                    if isIdenticallyZero(evalY, in: yRange) {
+                        continue
                     }
                     let roots = findRoots(of: evalY, in: yRange, ySpan: xSpan, maxCount: maxPerCategory)
                     for ry in roots {

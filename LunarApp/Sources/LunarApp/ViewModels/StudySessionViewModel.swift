@@ -42,6 +42,7 @@ public final class StudySessionViewModel {
     private let client: (any CoreClientProtocol)?
     private let audioPlayer: any AudioCuePlaying
     private var cardDisplayedAt: Date = Date()
+    private var sessionRecordId: String = "sess-\(UUID().uuidString.lowercased())"
     private var undoStack: [UndoSnapshot] = []
 
     private struct UndoSnapshot {
@@ -371,6 +372,7 @@ public final class StudySessionViewModel {
         elapsedSeconds = 0
         isShuffled = false
         isCompleted = false
+        sessionRecordId = "sess-\(UUID().uuidString.lowercased())"
         undoStack.removeAll()
         errorMessage = nil
         resetCardRevealState()
@@ -478,6 +480,7 @@ public final class StudySessionViewModel {
         guard let client else { return }
         if reviewedCount > 0 {
             let record = StudySessionRecord(
+                id: sessionRecordId,
                 mode: mode,
                 deckIds: deckIds,
                 deckTitles: deckTitles,

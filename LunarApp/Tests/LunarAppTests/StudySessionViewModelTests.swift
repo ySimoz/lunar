@@ -96,7 +96,11 @@ private actor StudyMockClient: CoreClientProtocol {
     func listSessions() async throws -> [StudySessionRecord] { createdSessions }
 
     func createSession(_ session: StudySessionRecord) async throws -> StudySessionRecord {
-        createdSessions.append(session)
+        if !session.id.isEmpty, let idx = createdSessions.firstIndex(where: { $0.id == session.id }) {
+            createdSessions[idx] = session
+        } else {
+            createdSessions.append(session)
+        }
         return session
     }
 
@@ -472,5 +476,46 @@ struct StudySessionViewModelTests {
         #expect(vm.canUndo)
         #expect(vm.currentIndex == 1)
         #expect(vm.correctCount == 1)
+    }
+
+    @Test("Undo from completion and re-completing updates the same session record without duplicating")
+    func undoFromCompletionUpsertsSessionRecord() async {
+        let (deck, cards) = sampleDeckAndCards()
+        let subset = Array(cards.prefix(2))
+        let mock = StudyMockClient(cards: subset)
+
+        let vm = StudySessionViewModel(
+            deck: deck,
+            cards: subset,
+            client: mock,
+            audioPlayer: SpyAudioPlayer()
+        )
+        await vm.startSession()
+
+        vm.revealAnswer()
+        await vm.submitRating(3)
+        vm.revealAnswer()
+        await vm.submitRating(1) // wrong on last card -> completes
+        #expect(vm.isCompleted)
+        #expect(await mock.createdSessions.count == 1)
+        #expect(await mock.createdSessions.first?.incorrectCount == 1)
+
+        // Undo from completion and rate Good instead
+        await vm.undoLastRating()
+        #expect(!vm.isCompleted)
+        vm.revealAnswer()
+        await vm.submitRating(3)
+        #expect(vm.isCompleted)
+        #expect(await mock.createdSessions.count == 1)
+        #expect(await mock.createdSessions.first?.correctCount == 2)
+        #expect(await mock.createdSessions.first?.incorrectCount == 0)
+
+        // Restarting starts a fresh attempt with a distinct session record
+        await vm.restart()
+        vm.revealAnswer()
+        await vm.submitRating(3)
+        vm.revealAnswer()
+        await vm.submitRating(3)
+        #expect(await mock.createdSessions.count == 2)
     }
 }

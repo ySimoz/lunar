@@ -123,6 +123,13 @@ struct GrapherUpgradesTests {
 
         let snapped = vm.nearestKeyPoint(toWorldX: 3.05, worldY: 8.95, aspect: 0.75, from: zoomedPoints)
         #expect(snapped?.id == target?.id)
+
+        // Identically zero curve (e.g. a = 0 in y = a*sin(b*x)) must not flood the x-axis with spurious x-intercepts
+        let flatVM = GrapherViewModel()
+        flatVM.addPlottedEquation("y = a*sin(b*x)")
+        flatVM.setParameterValue(name: "a", value: 0.0)
+        let flatPoints = flatVM.visibleKeyPoints(aspect: 0.75)
+        #expect(flatPoints.filter { $0.kind == .xIntercept }.isEmpty)
     }
 
     @Test("Graph snapshot renderer and card draft builder generate compact PNG data URI and valid Markdown")

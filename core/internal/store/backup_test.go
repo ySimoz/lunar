@@ -168,3 +168,90 @@ func TestRestoreRejectsInvalidFilesAndPreservesLiveDB(t *testing.T) {
 		t.Fatalf("live DB modified after rejected restores: len(decks)=%d, want 4", len(decks))
 	}
 }
+
+func TestRestoreMigratesLegacyBackupWithoutPrevStateOrDeckOrder(t *testing.T) {
+	s := openTestStore(t)
+
+	legacyPath := filepath.Join(t.TempDir(), "legacy_backup.db")
+	legacyDB, err := sql.Open("sqlite3", legacyPath)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	_, err = legacyDB.Exec(`
+		CREATE TABLE decks (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL DEFAULT 'default',
+			title TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			category TEXT NOT NULL,
+			difficulty TEXT NOT NULL,
+			color TEXT NOT NULL DEFAULT 'indigo',
+			chapters_json TEXT NOT NULL DEFAULT '[]',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+		CREATE TABLE cards (
+			id TEXT PRIMARY KEY,
+			deck_id TEXT NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL DEFAULT 'default',
+			topic TEXT NOT NULL DEFAULT '',
+			card_order INTEGER NOT NULL DEFAULT 0,
+			card_type TEXT NOT NULL DEFAULT '',
+			front TEXT NOT NULL,
+			back TEXT NOT NULL,
+			explanation TEXT NOT NULL DEFAULT '',
+			difficulty TEXT NOT NULL,
+			tags_json TEXT NOT NULL DEFAULT '[]',
+			repetition INTEGER NOT NULL DEFAULT 0,
+			interval_days INTEGER NOT NULL DEFAULT 1,
+			ease_factor REAL NOT NULL DEFAULT 2.5,
+			next_review_date TEXT NOT NULL,
+			last_reviewed TEXT NOT NULL DEFAULT '',
+			total_reviews INTEGER NOT NULL DEFAULT 0,
+			correct_count INTEGER NOT NULL DEFAULT 0,
+			incorrect_count INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+		CREATE TABLE review_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+			timestamp TEXT NOT NULL,
+			rating INTEGER NOT NULL,
+			interval_days INTEGER NOT NULL,
+			duration_ms INTEGER
+		);
+		INSERT INTO decks (id, title, category, difficulty, created_at, updated_at)
+		VALUES ('d-old', 'Old Backup', 'Calculus', 'medium', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z');
+		INSERT INTO cards (id, deck_id, front, back, difficulty, next_review_date, created_at, updated_at)
+		VALUES ('c-old', 'd-old', 'Integrate x dx', 'x^2 / 2 + C', 'easy', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z');
+	`)
+	if err != nil {
+		t.Fatalf("seed legacy backup: %v", err)
+	}
+	_ = legacyDB.Close()
+
+	legacyBytes, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatalf("read legacy backup: %v", err)
+	}
+
+	counts, err := s.Restore(legacyBytes)
+	if err != nil {
+		t.Fatalf("Restore legacy backup failed: %v", err)
+	}
+	if counts.Decks != 1 || counts.Cards != 1 {
+		t.Fatalf("RestoreCounts = %+v, want {Decks:1 Cards:1}", counts)
+	}
+
+	if _, err := s.ReviewCard("c-old", 3, nil, time.Now()); err != nil {
+		t.Fatalf("ReviewCard after legacy restore failed: %v", err)
+	}
+	undone, err := s.UndoCardReview("c-old", nil)
+	if err != nil {
+		t.Fatalf("UndoCardReview after legacy restore failed: %v", err)
+	}
+	if undone.TotalReviews != 0 || len(undone.History) != 0 {
+		t.Fatalf("expected restored card undone to 0 reviews, got total=%d history=%d", undone.TotalReviews, len(undone.History))
+	}
+}

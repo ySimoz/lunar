@@ -906,3 +906,40 @@ func TestOpen_MigrationAddsPrevStateToLegacyReviewLogs(t *testing.T) {
 		t.Fatalf("restored migrated card mismatch: got %+v, want %+v", restored, beforeNew)
 	}
 }
+
+func TestCreateSession_UpsertsByID(t *testing.T) {
+	s := openTestStore(t)
+
+	rec := domain.StudySessionRecord{
+		ID:              "sess-fixed-1",
+		Mode:            domain.StudyModeStandard,
+		DeckIDs:         []string{"d1"},
+		DeckTitles:      []string{"Analysis"},
+		CardsReviewed:   2,
+		CorrectCount:    1,
+		IncorrectCount:  1,
+		DurationSeconds: 15,
+		CompletedAt:     "2026-11-18T10:00:00Z",
+	}
+	if _, err := s.CreateSession(rec); err != nil {
+		t.Fatalf("CreateSession #1: %v", err)
+	}
+
+	rec.CorrectCount = 2
+	rec.IncorrectCount = 0
+	rec.DurationSeconds = 22
+	if _, err := s.CreateSession(rec); err != nil {
+		t.Fatalf("CreateSession #2 upsert: %v", err)
+	}
+
+	sessions, err := s.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 upserted session, got %d", len(sessions))
+	}
+	if sessions[0].CorrectCount != 2 || sessions[0].IncorrectCount != 0 || sessions[0].DurationSeconds != 22 {
+		t.Fatalf("unexpected upserted session: %+v", sessions[0])
+	}
+}

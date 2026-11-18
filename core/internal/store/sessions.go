@@ -64,7 +64,18 @@ func (s *Store) CreateSession(rec domain.StudySessionRecord) (domain.StudySessio
 			id, user_id, mode, deck_ids_json, deck_titles_json,
 			cards_reviewed, correct_count, incorrect_count, lives_left,
 			duration_seconds, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			user_id = excluded.user_id,
+			mode = excluded.mode,
+			deck_ids_json = excluded.deck_ids_json,
+			deck_titles_json = excluded.deck_titles_json,
+			cards_reviewed = excluded.cards_reviewed,
+			correct_count = excluded.correct_count,
+			incorrect_count = excluded.incorrect_count,
+			lives_left = excluded.lives_left,
+			duration_seconds = excluded.duration_seconds,
+			completed_at = excluded.completed_at`,
 		rec.ID, rec.UserID, string(rec.Mode), encodeStringSlice(rec.DeckIDs),
 		encodeStringSlice(rec.DeckTitles), rec.CardsReviewed, rec.CorrectCount,
 		rec.IncorrectCount, rec.LivesLeft, rec.DurationSeconds, rec.CompletedAt,
